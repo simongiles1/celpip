@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CELPIP Pilot
 
-## Getting Started
+Personalized CELPIP Reading & Writing study accelerator. Backfills a 7-day/week schedule from today to your exam date with 45-minute practice sessions powered by Gemini AI.
 
-First, run the development server:
+## Features
+
+- **Interactive calendar** — Month/week views with drag-and-drop rescheduling
+- **AI-generated practice** — Writing and Reading modules tailored to each curriculum unit
+- **Instant CLB grading** — Gemini evaluates submissions on official CELPIP criteria (bands 1–12)
+- **Analytics dashboard** — Score timeline and aggregated mistake log
+- **Local persistence** — All progress saved to a SQLite database (`data/celpip.db`; export/import backup supported). Two sessions per day: writing at 9:00, reading at 10:00.
+
+## Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `.env.local` from the example:
+
+```bash
+cp .env.example .env.local
+```
+
+3. Add your [Google AI Studio](https://aistudio.google.com/apikey) API key:
+
+```
+GEMINI_API_KEY=your_key_here
+```
+
+4. Start the dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Study data is stored in `data/celpip.db` (SQLite). Override the path with `DATABASE_PATH` in `.env.local` if needed. On first load, any existing browser `localStorage` data is migrated automatically into the database.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+5. Open [http://localhost:3000](http://localhost:3000), set your exam date on onboarding, and start studying.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tech Stack
 
-## Learn More
+- Next.js 16 (App Router) + React + TypeScript
+- Tailwind CSS
+- FullCalendar (drag-and-drop scheduling)
+- Zustand + SQLite (better-sqlite3)
+- Google Gemini 1.5 Flash (generation & grading)
+- Recharts (analytics)
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+app/              # Pages and API routes
+components/       # UI, calendar, session, analytics
+data/             # Immutable 4-week curriculum
+hooks/            # Zustand store
+lib/              # Types, storage, schedule, prompts
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## API Routes
 
-## Deploy on Vercel
+- `POST /api/generate` — Generate practice content for a curriculum unit
+- `POST /api/grade` — Grade a writing or reading submission
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Both routes require `GEMINI_API_KEY` on the server.

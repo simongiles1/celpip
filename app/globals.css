@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f9fafb;
+  --foreground: #111827;
 }
 
 @theme inline {
@@ -12,15 +12,204 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.prose p {
+  margin-bottom: 0.75em;
+}
+
+.prose ul {
+  list-style-type: disc;
+  padding-left: 1.25em;
+  margin-bottom: 0.75em;
+}
+
+.prose li {
+  margin-bottom: 0.25em;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75em;
+  font-size: 0.875rem;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+.prose blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 0.75em;
+  margin-bottom: 0.75em;
+  color: #4b5563;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.fc {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.fc .fc-toolbar-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.fc .fc-button {
+  background-color: #f3f4f6;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.fc .fc-button:hover {
+  background-color: #e5e7eb;
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background-color: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+
+.fc .fc-col-header-cell-cushion,
+.fc .fc-daygrid-day-number,
+.fc .fc-timegrid-slot-label-cushion {
+  color: #374151;
+  text-decoration: none;
+}
+
+.fc .fc-timegrid-slot {
+  height: 3rem;
+}
+
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border-color: #e5e7eb;
+}
+
+.fc-theme-standard .fc-scrollgrid {
+  border-color: #e5e7eb;
+}
+
+.fc-event {
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.fc-timegrid-event .fc-event-main {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.study-cal-event-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.study-cal-event-body--has-icons {
+  padding-bottom: 1.35rem;
+}
+
+.study-cal-event-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.study-cal-event-time {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.study-cal-event-title {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.study-cal-event-icons {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  line-height: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.study-cal-event-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  max-width: 1.35rem;
+  max-height: 1.35rem;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+.study-cal-event-icon svg {
+  display: block;
+  width: 0.9rem;
+  height: 0.9rem;
+  max-width: 0.9rem;
+  max-height: 0.9rem;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
+}
+
+.study-cal-event-icon--completed {
+  color: #15803d;
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.95);
+}
+
+@media (max-width: 640px) {
+  .fc-toolbar {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
 }
