@@ -6,7 +6,7 @@ services:
     container_name: celpip-web
     restart: always
     ports:
-      - "3000:3000"
+      - "31421:3000"
     env_file:
       - .env
     environment:
