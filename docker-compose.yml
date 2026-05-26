@@ -6,8 +6,14 @@ services:
     container_name: celpip-web
     restart: always
     ports:
-      - "31421:3000"
+      - "3000:3000"
     env_file:
       - .env
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DATABASE_PATH=/app/database/celpip.db
+    volumes:
+      - celpip-db:/app/database
+
+volumes:
+  celpip-db:

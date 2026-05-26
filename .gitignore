@@ -21,7 +21,8 @@
 /build
 
 # local sqlite database
-/data/
+/data/celpip.db*
+!/data/*.ts
 
 # misc
 .DS_Store
