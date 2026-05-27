@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,13 @@ import {
   getStrongConcepts,
   getWeakConcepts,
 } from "@/lib/skill-profile";
+import {
+  CELPIP_READING_PART_LABELS,
+  CELPIP_READING_PARTS,
+  getReadingAccuracyByPart,
+  type AccuracyBucket,
+} from "@/lib/reading-analytics";
+import type { CelpipReadingPart } from "@/lib/types";
 
 function MasteryBar({ mastery }: { mastery: number }) {
   const color =
@@ -67,6 +74,10 @@ function ConceptCard({
   );
 }
 
+function partToMockSpecId(part: CelpipReadingPart): string {
+  return `mock-reading-${part}`;
+}
+
 export default function ConceptsPage() {
   const skillProfile = useStudyStore((s) => s.skillProfile);
   const graded = useStudyStore((s) => s.graded);
@@ -78,6 +89,17 @@ export default function ConceptsPage() {
   const strong = getStrongConcepts(skillProfile, 5);
   const recommended = getRecommendedConcepts(skillProfile, 3);
   const allConcepts = getAllConcepts(skillProfile);
+
+  const weakParts = useMemo<
+    Array<{ part: CelpipReadingPart; bucket: AccuracyBucket }>
+  >(() => {
+    const byPart = getReadingAccuracyByPart(graded);
+    return CELPIP_READING_PARTS.filter((p) => byPart[p].total >= 5)
+      .map((p) => ({ part: p, bucket: byPart[p] }))
+      .filter(({ bucket }) => bucket.pct < 0.8)
+      .sort((a, b) => a.bucket.pct - b.bucket.pct)
+      .slice(0, 3);
+  }, [graded]);
 
   const hasData = graded.length > 0 || skillProfile.observations.length > 0;
 
@@ -160,6 +182,39 @@ export default function ConceptsPage() {
                 />
               );
             })}
+          </CardContent>
+        </Card>
+      )}
+
+      {weakParts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Weak CELPIP Reading Parts</CardTitle>
+            <p className="text-sm text-gray-500">
+              These reading parts have accuracy below 80% across your last few
+              sessions. Run the strict mock version to harden them.
+            </p>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-3">
+            {weakParts.map(({ part, bucket }) => (
+              <div
+                key={part}
+                className="space-y-3 rounded-lg border border-gray-200 p-4"
+              >
+                <div>
+                  <p className="font-medium text-gray-900">
+                    {CELPIP_READING_PART_LABELS[part]}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {bucket.correct}/{bucket.total} correct ·{" "}
+                    {Math.round(bucket.pct * 100)}% accuracy
+                  </p>
+                </div>
+                <Link href={`/practice-tests/${partToMockSpecId(part)}`}>
+                  <Button size="sm">Run mock</Button>
+                </Link>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

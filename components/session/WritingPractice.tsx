@@ -1,15 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import {
+  ExamCountdownDisplay,
+  useExamCountdown,
+} from "@/components/session/ExamCountdown";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/input";
+import {
+  getWritingExamTimeLimitLabel,
+  getWritingExamTimeLimitSeconds,
+} from "@/lib/exam-timing";
+import { getThemedWritingStartCopy } from "@/lib/exercise-types";
 import { cn, countWords } from "@/lib/utils";
 
 interface WritingPracticeProps {
   instructions: string;
   example: string;
   examPrompt: string;
+  practiceType: string;
+  focusTarget: string;
   sessionGoal: string;
   grammarFocus?: string;
   strategy?: string;
@@ -31,6 +43,8 @@ export function WritingPractice({
   instructions,
   example,
   examPrompt,
+  practiceType,
+  focusTarget,
   sessionGoal,
   grammarFocus,
   strategy,
@@ -40,8 +54,21 @@ export function WritingPractice({
   submitting,
   disabled,
 }: WritingPracticeProps) {
+  const [questionStarted, setQuestionStarted] = useState(false);
+  const timeLimitSeconds = getWritingExamTimeLimitSeconds(practiceType);
+  const timeLimitLabel = getWritingExamTimeLimitLabel(practiceType);
+  const startCopy = getThemedWritingStartCopy({
+    focusTarget,
+    suggestedTimeLabel: timeLimitLabel,
+    practiceType,
+  });
+  const { remaining, expired } = useExamCountdown(
+    timeLimitSeconds,
+    questionStarted,
+  );
   const wordCount = countWords(value);
   const inRange = wordCount >= TARGET_MIN && wordCount <= TARGET_MAX;
+  const inputLocked = disabled || expired;
 
   return (
     <Tabs defaultValue="instructions" className="flex min-h-0 flex-1 flex-col">
@@ -92,50 +119,81 @@ export function WritingPractice({
       </TabsContent>
 
       <TabsContent value="prompt" className={tabPanelClass}>
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-          <div className="max-h-48 shrink-0 overflow-y-auto rounded-lg border border-gray-200 px-4 py-3">
-            <h3 className="mb-2 text-sm font-semibold text-gray-900">Exam Prompt</h3>
-            <div className="prose prose-sm max-w-none [&>:first-child]:mt-0">
-              <ReactMarkdown>{examPrompt}</ReactMarkdown>
+        {!questionStarted ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center">
+            <div className="space-y-2">
+              <h3 className="text-base font-semibold text-gray-900">
+                {startCopy.title}
+              </h3>
+              <p className="max-w-sm text-sm text-gray-600">{startCopy.body}</p>
             </div>
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => setQuestionStarted(true)}
+              disabled={disabled}
+            >
+              Start practice prompt
+            </Button>
           </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+            <ExamCountdownDisplay remaining={remaining} expired={expired} />
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="mb-2 flex shrink-0 items-center justify-between">
-              <label className="text-sm font-medium text-gray-700">Your Response</label>
-              <span
-                className={cn(
-                  "text-sm font-medium",
-                  inRange ? "text-green-600" : "text-amber-600",
-                )}
-              >
-                {wordCount} words (target: {TARGET_MIN}–{TARGET_MAX})
-              </span>
+            <div className="max-h-48 shrink-0 overflow-y-auto rounded-lg border border-gray-200 px-4 py-3">
+              <h3 className="mb-2 text-sm font-semibold text-gray-900">
+                Practice prompt
+              </h3>
+              <div className="prose prose-sm max-w-none [&>:first-child]:mt-0">
+                <ReactMarkdown>{examPrompt}</ReactMarkdown>
+              </div>
             </div>
-            <div className="relative min-h-0 flex-1">
-              <Textarea
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                placeholder="Write your response here..."
-                disabled={disabled}
-                className="absolute inset-0 h-full min-h-0 resize-none"
-              />
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="mb-2 flex shrink-0 items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">
+                  Your Response
+                </label>
+                <span
+                  className={cn(
+                    "text-sm font-medium",
+                    inRange ? "text-green-600" : "text-amber-600",
+                  )}
+                >
+                  {wordCount} words (target: {TARGET_MIN}–{TARGET_MAX})
+                </span>
+              </div>
+              <div className="relative min-h-0 flex-1">
+                <Textarea
+                  value={value}
+                  onChange={(e) => onChange(e.target.value)}
+                  placeholder="Write your response here..."
+                  disabled={inputLocked}
+                  className="absolute inset-0 h-full min-h-0 resize-none"
+                />
+              </div>
+              {expired && (
+                <p className="mt-1 shrink-0 text-xs text-red-600">
+                  Time is up. You can still submit what you have written.
+                </p>
+              )}
+              {!inRange && wordCount > 0 && !expired && (
+                <p className="mt-1 shrink-0 text-xs text-amber-600">
+                  CELPIP writing tasks typically require {TARGET_MIN}–
+                  {TARGET_MAX} words.
+                </p>
+              )}
             </div>
-            {!inRange && wordCount > 0 && (
-              <p className="mt-1 shrink-0 text-xs text-amber-600">
-                CELPIP writing tasks typically require {TARGET_MIN}–{TARGET_MAX} words.
-              </p>
-            )}
+
+            <Button
+              onClick={onSubmit}
+              disabled={disabled || submitting || wordCount < 20}
+              className="w-full shrink-0 sm:w-auto"
+            >
+              {submitting ? "Grading..." : "Submit practice response"}
+            </Button>
           </div>
-
-          <Button
-            onClick={onSubmit}
-            disabled={disabled || submitting || wordCount < 20}
-            className="w-full shrink-0 sm:w-auto"
-          >
-            {submitting ? "Grading..." : "Submit Exam Response"}
-          </Button>
-        </div>
+        )}
       </TabsContent>
 
       <TabsContent value="example" className={tabPanelClass}>

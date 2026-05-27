@@ -14,9 +14,10 @@ import {
   ConceptChatButton,
   ConceptChatPanel,
 } from "@/components/session/ConceptChatPanel";
+import { ExerciseKindBadge } from "@/components/session/ExerciseKindBadge";
 import { GeminiCostPopover } from "@/components/session/GeminiCostPopover";
 import { GradingResults } from "@/components/session/GradingResults";
-import { ReadingPractice } from "@/components/session/ReadingPractice";
+import { ReadingSessionContent } from "@/components/session/ReadingSessionContent";
 import { WritingPractice } from "@/components/session/WritingPractice";
 import { useSelectedEvent, useStudyStore } from "@/hooks/useStudyStore";
 import { useConceptChat } from "@/hooks/useConceptChat";
@@ -31,13 +32,13 @@ import {
 } from "@/lib/concept-question-sets";
 import { combineGeminiUsage } from "@/lib/gemini-session-usage";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
+import { getExerciseKindForUnit } from "@/lib/exercise-types";
 import { getConceptById, getStrongConcepts, getWeakConcepts } from "@/lib/skill-profile";
 import type {
   ConceptDrillItem,
   CurriculumUnit,
   GenerateResponse,
   GradeResponse,
-  ReadingQuestion,
   SessionMode,
   StudyEvent,
 } from "@/lib/types";
@@ -72,6 +73,7 @@ function SessionModalContent({
 
   const existingGrade = getGradedForEvent(event.id);
   const cached = getGeneratedForEvent(event.id);
+  const isReading = unit.focusSubTest === "Reading";
   const isConceptUnit = unit.focusSubTest === "Concept";
   const conceptSaved =
     isConceptUnit && typeof existingGrade?.studentSubmission === "string"
@@ -89,7 +91,7 @@ function SessionModalContent({
         }
       : null,
   );
-  const [loading, setLoading] = useState(!cached);
+  const [loading, setLoading] = useState(!cached && !isReading);
   const [error, setError] = useState<string | null>(null);
   const [writingText, setWritingText] = useState(
     !isConceptUnit && typeof existingGrade?.studentSubmission === "string"
@@ -142,7 +144,6 @@ function SessionModalContent({
   }, [generateUsage, gradeUsage, geminiModel, onUsageChange]);
 
   const isExam = unit.focusSubTest === "EXAM";
-  const isReading = unit.focusSubTest === "Reading";
   const isConcept = unit.focusSubTest === "Concept";
   const drillItems = content?.conceptDrillItems ?? [];
 
@@ -165,7 +166,7 @@ function SessionModalContent({
       : "subtest";
 
   const fetchContent = useCallback(async () => {
-    if (isExam || cached) return;
+    if (isExam || isReading || cached) return;
     if (generateInFlight.current) return;
     generateInFlight.current = true;
     setLoading(true);
@@ -251,13 +252,14 @@ function SessionModalContent({
     sessionMode,
     generateOverrides,
     isConcept,
+    isReading,
   ]);
 
   useEffect(() => {
-    if (!isExam && !cached) {
+    if (!isExam && !cached && !isReading) {
       void fetchContent();
     }
-  }, [isExam, cached, fetchContent]);
+  }, [isExam, cached, isReading, fetchContent]);
 
   const persistGrade = (result: GradeResponse, submission: string | Record<string, number>, track: "subtest" | "concept") => {
     setGradeResult(result);
@@ -306,38 +308,6 @@ function SessionModalContent({
 
       const result = (await res.json()) as GradeResponse;
       persistGrade(result, writingText, "subtest");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Grading failed");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleSubmitReading = async (answers: Record<string, number>) => {
-    if (!content) return;
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/grade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          focusSubTest: "Reading",
-          examPrompt: content.examPrompt,
-          studentSubmission: answers,
-          readingQuestions: content.readingQuestions as ReadingQuestion[],
-          model: geminiModel,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "Grading failed");
-      }
-
-      const result = (await res.json()) as GradeResponse;
-      persistGrade(result, answers, "subtest");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Grading failed");
     } finally {
@@ -400,6 +370,16 @@ function SessionModalContent({
           Rest well, arrive early, and trust your preparation. Good luck achieving CLB 9+!
         </p>
       </div>
+    );
+  }
+
+  if (isReading) {
+    return (
+      <ReadingSessionContent
+        event={event}
+        unit={unit}
+        onUsageChange={onUsageChange}
+      />
     );
   }
 
@@ -476,22 +456,13 @@ function SessionModalContent({
             gradeResult={gradeResult}
           />
         </div>
-      ) : isReading ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ReadingPractice
-            instructions={content.instructions}
-            example={content.example}
-            examPrompt={content.examPrompt}
-            questions={content.readingQuestions ?? []}
-            onSubmit={handleSubmitReading}
-            submitting={submitting}
-          />
-        </div>
       ) : (
         <WritingPractice
           instructions={content.instructions}
           example={content.example}
           examPrompt={content.examPrompt}
+          practiceType={unit.practiceType}
+          focusTarget={unit.focusTarget}
           sessionGoal={unit.sessionGoal}
           grammarFocus={unit.grammarFocus}
           strategy={unit.strategy}
@@ -545,6 +516,7 @@ export function SessionModal() {
   });
 
   const open = Boolean(selectedEventId && event && unit);
+  const exerciseKind = unit ? getExerciseKindForUnit(unit) : null;
 
   useEffect(() => {
     if (!open) {
@@ -589,12 +561,19 @@ export function SessionModal() {
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>{unit.focusSubTest}</Badge>
+                {exerciseKind && <ExerciseKindBadge kind={exerciseKind} />}
                 <Badge variant="outline">Week {unit.week}</Badge>
                 {event.status === "completed" && (
                   <Badge variant="success">Completed</Badge>
                 )}
               </div>
               <DialogTitle>{unit.focusTarget}</DialogTitle>
+              {exerciseKind === "themed" && (
+                <p className="text-sm text-gray-500">
+                  Themed practice from your study plan — skill work, not an
+                  official CELPIP test item.
+                </p>
+              )}
             </div>
           </DialogHeader>
 

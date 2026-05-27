@@ -57,7 +57,8 @@ function initSchema(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS user_preferences (
       id INTEGER PRIMARY KEY CHECK (id = 1),
-      gemini_model TEXT NOT NULL
+      gemini_model TEXT NOT NULL,
+      preferred_reading_clb_band INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS study_events (
@@ -77,7 +78,9 @@ function initSchema(database: Database.Database): void {
       reading_questions TEXT,
       concept_drill_items TEXT,
       concept_id TEXT,
-      generated_at TEXT NOT NULL
+      generated_at TEXT NOT NULL,
+      passage_celpip_part TEXT,
+      passage_target_clb_band INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS graded_sessions (
@@ -90,7 +93,9 @@ function initSchema(database: Database.Database): void {
       constructive_criticism TEXT NOT NULL,
       grammar_corrections TEXT NOT NULL,
       student_submission TEXT NOT NULL,
-      graded_at TEXT NOT NULL
+      graded_at TEXT NOT NULL,
+      is_mock INTEGER NOT NULL DEFAULT 0,
+      mock_spec_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS skill_profile (
@@ -115,6 +120,53 @@ function initSchema(database: Database.Database): void {
 
   migrateGeminiUsageColumns(database);
   migrateFeedbackScreenshotColumns(database);
+  migrateReadingAnswersColumn(database);
+  migrateReadingClbColumns(database);
+  migrateMockColumns(database);
+  migratePreferredReadingClbColumn(database);
+}
+
+function migrateReadingClbColumns(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(generated_content)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "passage_celpip_part")) {
+    database.exec(
+      `ALTER TABLE generated_content ADD COLUMN passage_celpip_part TEXT`,
+    );
+  }
+  if (!cols.some((c) => c.name === "passage_target_clb_band")) {
+    database.exec(
+      `ALTER TABLE generated_content ADD COLUMN passage_target_clb_band INTEGER`,
+    );
+  }
+}
+
+function migrateMockColumns(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(graded_sessions)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "is_mock")) {
+    database.exec(
+      `ALTER TABLE graded_sessions ADD COLUMN is_mock INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!cols.some((c) => c.name === "mock_spec_id")) {
+    database.exec(
+      `ALTER TABLE graded_sessions ADD COLUMN mock_spec_id TEXT`,
+    );
+  }
+}
+
+function migratePreferredReadingClbColumn(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(user_preferences)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "preferred_reading_clb_band")) {
+    database.exec(
+      `ALTER TABLE user_preferences ADD COLUMN preferred_reading_clb_band INTEGER`,
+    );
+  }
 }
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
@@ -141,6 +193,17 @@ function migrateGeminiUsageColumns(database: Database.Database): void {
     .all() as Array<{ name: string }>;
   if (!gradedCols.some((c) => c.name === "gemini_usage")) {
     database.exec(`ALTER TABLE graded_sessions ADD COLUMN gemini_usage TEXT`);
+  }
+}
+
+function migrateReadingAnswersColumn(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(generated_content)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "reading_answers")) {
+    database.exec(
+      `ALTER TABLE generated_content ADD COLUMN reading_answers TEXT`,
+    );
   }
 }
 
@@ -221,30 +284,52 @@ export function saveSettings(settings: AppSettings): void {
     });
 }
 
+function clampClbBand(value: number | null | undefined): number | undefined {
+  if (value == null) return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  return Math.max(6, Math.min(12, Math.round(value)));
+}
+
 export function loadPreferences(): UserPreferences {
   const row = getDb()
-    .prepare(`SELECT gemini_model FROM user_preferences WHERE id = 1`)
-    .get() as { gemini_model: string } | undefined;
+    .prepare(
+      `SELECT gemini_model, preferred_reading_clb_band
+       FROM user_preferences WHERE id = 1`,
+    )
+    .get() as
+    | {
+        gemini_model: string;
+        preferred_reading_clb_band: number | null;
+      }
+    | undefined;
 
   if (!row) {
-    return { geminiModel: DEFAULT_GEMINI_MODEL };
+    return { geminiModel: DEFAULT_GEMINI_MODEL, preferredReadingClbBand: 9 };
   }
 
   return {
     geminiModel: isGeminiModel(row.gemini_model)
       ? row.gemini_model
       : DEFAULT_GEMINI_MODEL,
+    preferredReadingClbBand:
+      clampClbBand(row.preferred_reading_clb_band) ?? 9,
   };
 }
 
 export function savePreferences(preferences: UserPreferences): void {
   getDb()
     .prepare(
-      `INSERT INTO user_preferences (id, gemini_model)
-       VALUES (1, @geminiModel)
-       ON CONFLICT(id) DO UPDATE SET gemini_model = excluded.gemini_model`,
+      `INSERT INTO user_preferences (id, gemini_model, preferred_reading_clb_band)
+       VALUES (1, @geminiModel, @preferredReadingClbBand)
+       ON CONFLICT(id) DO UPDATE SET
+         gemini_model = excluded.gemini_model,
+         preferred_reading_clb_band = excluded.preferred_reading_clb_band`,
     )
-    .run({ geminiModel: preferences.geminiModel });
+    .run({
+      geminiModel: preferences.geminiModel,
+      preferredReadingClbBand:
+        clampClbBand(preferences.preferredReadingClbBand) ?? null,
+    });
 }
 
 export function loadEvents(): StudyEvent[] {
@@ -298,7 +383,8 @@ export function loadGenerated(): GeneratedContent[] {
   const rows = getDb()
     .prepare(
       `SELECT event_id, instructions, example, exam_prompt, reading_questions,
-              concept_drill_items, concept_id, generated_at, gemini_usage
+              reading_answers, concept_drill_items, concept_id, generated_at, gemini_usage,
+              passage_celpip_part, passage_target_clb_band
        FROM generated_content ORDER BY generated_at`,
     )
     .all() as Array<{
@@ -307,10 +393,13 @@ export function loadGenerated(): GeneratedContent[] {
     example: string;
     exam_prompt: string;
     reading_questions: string | null;
+    reading_answers: string | null;
     concept_drill_items: string | null;
     concept_id: string | null;
     generated_at: string;
     gemini_usage: string | null;
+    passage_celpip_part: string | null;
+    passage_target_clb_band: number | null;
   }>;
 
   return rows.map((row) => ({
@@ -319,10 +408,23 @@ export function loadGenerated(): GeneratedContent[] {
     example: row.example,
     examPrompt: row.exam_prompt,
     readingQuestions: parseJson(row.reading_questions, undefined),
+    readingAnswers: parseJson<Record<string, number> | undefined>(
+      row.reading_answers,
+      undefined,
+    ),
     conceptDrillItems: parseJson(row.concept_drill_items, undefined),
     ...(row.concept_id ? { conceptId: row.concept_id } : {}),
     generatedAt: row.generated_at,
     geminiUsage: parseJson(row.gemini_usage, undefined),
+    ...(row.passage_celpip_part
+      ? {
+          passageCelpipPart:
+            row.passage_celpip_part as GeneratedContent["passageCelpipPart"],
+        }
+      : {}),
+    ...(clampClbBand(row.passage_target_clb_band) != null
+      ? { passageTargetClbBand: clampClbBand(row.passage_target_clb_band) }
+      : {}),
   }));
 }
 
@@ -333,10 +435,12 @@ export function saveGenerated(items: GeneratedContent[]): void {
     const insert = database.prepare(
       `INSERT INTO generated_content (
          event_id, instructions, example, exam_prompt, reading_questions,
-         concept_drill_items, concept_id, generated_at, gemini_usage
+         reading_answers, concept_drill_items, concept_id, generated_at, gemini_usage,
+         passage_celpip_part, passage_target_clb_band
        ) VALUES (
          @eventId, @instructions, @example, @examPrompt, @readingQuestions,
-         @conceptDrillItems, @conceptId, @generatedAt, @geminiUsage
+         @readingAnswers, @conceptDrillItems, @conceptId, @generatedAt, @geminiUsage,
+         @passageCelpipPart, @passageTargetClbBand
        )`,
     );
     for (const item of records) {
@@ -348,6 +452,9 @@ export function saveGenerated(items: GeneratedContent[]): void {
         readingQuestions: item.readingQuestions
           ? JSON.stringify(item.readingQuestions)
           : null,
+        readingAnswers: item.readingAnswers
+          ? JSON.stringify(item.readingAnswers)
+          : null,
         conceptDrillItems: item.conceptDrillItems
           ? JSON.stringify(item.conceptDrillItems)
           : null,
@@ -356,6 +463,8 @@ export function saveGenerated(items: GeneratedContent[]): void {
         geminiUsage: item.geminiUsage
           ? JSON.stringify(item.geminiUsage)
           : null,
+        passageCelpipPart: item.passageCelpipPart ?? null,
+        passageTargetClbBand: clampClbBand(item.passageTargetClbBand) ?? null,
       });
     }
   });
@@ -367,7 +476,8 @@ export function loadGraded(): GradedSession[] {
     .prepare(
       `SELECT event_id, curriculum_unit_id, focus_sub_test, estimated_band,
               overall_feedback, positives, constructive_criticism,
-              grammar_corrections, student_submission, graded_at, gemini_usage
+              grammar_corrections, student_submission, graded_at, gemini_usage,
+              is_mock, mock_spec_id
        FROM graded_sessions ORDER BY graded_at`,
     )
     .all() as Array<{
@@ -382,6 +492,8 @@ export function loadGraded(): GradedSession[] {
     student_submission: string;
     graded_at: string;
     gemini_usage: string | null;
+    is_mock: number | null;
+    mock_spec_id: string | null;
   }>;
 
   return rows.map((row) => ({
@@ -393,12 +505,13 @@ export function loadGraded(): GradedSession[] {
     positives: parseJson<string[]>(row.positives, []),
     constructiveCriticism: parseJson<string[]>(row.constructive_criticism, []),
     grammarCorrections: parseJson(row.grammar_corrections, []),
-    studentSubmission: parseJson<string | Record<string, number>>(
-      row.student_submission,
-      "",
-    ),
+    studentSubmission: parseJson<
+      GradedSession["studentSubmission"]
+    >(row.student_submission, ""),
     gradedAt: row.graded_at,
     geminiUsage: parseJson(row.gemini_usage, undefined),
+    ...(row.is_mock ? { isMock: true } : {}),
+    ...(row.mock_spec_id ? { mockSpecId: row.mock_spec_id } : {}),
   }));
 }
 
@@ -410,11 +523,13 @@ export function saveGraded(items: GradedSession[]): void {
       `INSERT INTO graded_sessions (
          event_id, curriculum_unit_id, focus_sub_test, estimated_band,
          overall_feedback, positives, constructive_criticism,
-         grammar_corrections, student_submission, graded_at, gemini_usage
+         grammar_corrections, student_submission, graded_at, gemini_usage,
+         is_mock, mock_spec_id
        ) VALUES (
          @eventId, @curriculumUnitId, @focusSubTest, @estimatedBand,
          @overallFeedback, @positives, @constructiveCriticism,
-         @grammarCorrections, @studentSubmission, @gradedAt, @geminiUsage
+         @grammarCorrections, @studentSubmission, @gradedAt, @geminiUsage,
+         @isMock, @mockSpecId
        )`,
     );
     for (const item of records) {
@@ -432,6 +547,8 @@ export function saveGraded(items: GradedSession[]): void {
         geminiUsage: item.geminiUsage
           ? JSON.stringify(item.geminiUsage)
           : null,
+        isMock: item.isMock ? 1 : 0,
+        mockSpecId: item.mockSpecId ?? null,
       });
     }
   });

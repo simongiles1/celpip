@@ -1,4 +1,75 @@
-import type { ConceptContext, SessionMode } from "@/lib/types";
+import type {
+  CelpipReadingPart,
+  ConceptContext,
+  ReadingQuestionType,
+  SessionMode,
+} from "@/lib/types";
+import {
+  CELPIP_MOCK_GENERATION_PREAMBLE,
+  THEMED_GENERATION_PREAMBLE,
+} from "@/lib/exercise-types";
+
+const READING_PART_BLURBS: Record<CelpipReadingPart, string> = {
+  part_1:
+    "Part 1 (Correspondence): a short letter/email plus a reply with blanks. Tests reader comprehension of correspondence, register, and explicit detail. ~200 words, 11 questions on real CELPIP.",
+  part_2:
+    "Part 2 (Diagram): a labeled diagram or schedule plus a short email reply about it. Tests applying information from visuals/data. ~150-200 words, 8 questions on real CELPIP.",
+  part_3:
+    "Part 3 (Information Matching): a structured article split into 4 sections (A/B/C/D). Tests scanning and matching statements to source paragraphs. ~300 words, 9 questions on real CELPIP.",
+  part_4:
+    "Part 4 (Viewpoints): an article (news/opinion) followed by a reader comment with blanks. Tests inference, author intent, tone, and viewpoint comparison. ~300-400 words, 10 questions on real CELPIP.",
+};
+
+const READING_QUESTION_TYPE_LABELS: Record<ReadingQuestionType, string> = {
+  main_idea: "main idea / gist",
+  detail_extraction: "explicit detail from the text",
+  inference: "inference of implied meaning",
+  paraphrase_recognition: "paraphrase recognition / vocabulary synonym",
+  vocabulary_in_context: "vocabulary in context",
+  distractor_analysis: "fine distractor analysis (subtly wrong options)",
+  tone_attitude: "tone, attitude, or author intent",
+};
+
+const READING_QUESTION_TYPE_IDS = Object.keys(
+  READING_QUESTION_TYPE_LABELS,
+) as ReadingQuestionType[];
+
+const READING_PART_IDS: CelpipReadingPart[] = [
+  "part_1",
+  "part_2",
+  "part_3",
+  "part_4",
+];
+
+function formatReadingPartHint(part: CelpipReadingPart | null): string {
+  if (!part) return "";
+  return `\n\nTarget CELPIP Reading Part: ${part}\n${READING_PART_BLURBS[part]}\nMatch this Part's text type, register, and question style.`;
+}
+
+function formatClbBandHint(targetClbBand: number | null): string {
+  if (targetClbBand == null) return "";
+  const clamped = Math.max(6, Math.min(12, Math.round(targetClbBand)));
+  return `\n\nDifficulty target: CLB band ${clamped}. Calibrate passage vocabulary, syntactic complexity, and distractor subtlety to this band. Lower bands (6-7) = high-frequency vocabulary, short sentences, direct/explicit questions. Mid bands (8-9) = standard register, some academic vocab, mix of literal and inference questions. High bands (10-12) = academic / formal register, idioms and collocations, abstract themes, fine-grained inference distractors that require careful elimination.`;
+}
+
+function inferReadingPartFromPracticeType(
+  practiceType: string,
+): CelpipReadingPart | null {
+  const t = practiceType.toLowerCase();
+  if (/part\s*1|correspondence/.test(t)) return "part_1";
+  if (/part\s*2|diagram/.test(t)) return "part_2";
+  if (/part\s*3|info[ -]?matching|information matching/.test(t)) return "part_3";
+  if (/part\s*4|viewpoints/.test(t)) return "part_4";
+  return null;
+}
+
+function readingTaggingBlock(): string {
+  return `For EACH question include "celpipPart" (one of ${READING_PART_IDS.join(", ")}), "questionType" (one of ${READING_QUESTION_TYPE_IDS.join(", ")}), and "targetClbBand" (integer 6-12 reflecting the question's intended difficulty). Also include a passage-level "passageCelpipPart" (string) and "passageTargetClbBand" (integer 6-12). Question types: ${Object.entries(
+    READING_QUESTION_TYPE_LABELS,
+  )
+    .map(([id, label]) => `${id} = ${label}`)
+    .join("; ")}.`;
+}
 
 const SKILL_TAGS_SCHEMA = `
   "skillTags": [
@@ -69,6 +140,7 @@ export function buildGenerationPrompt(
     conceptSetNumber?: number;
     conceptDescriptionOverride?: string;
     conceptDrillConstraintsOverride?: string;
+    targetClbBand?: number;
   },
 ): string {
   const mode = options?.sessionMode ?? "subtest";
@@ -100,16 +172,83 @@ export function buildGenerationPrompt(
     adaptiveNote += `\nStudent strengths (maintain appropriate challenge level):\n${strongBlock}\n`;
   }
 
-  return `You are an expert CELPIP examiner. Generate a practice module for the following study unit:
+  const isReadingFocus =
+    focusSubTest === "Reading" ||
+    practiceType.toLowerCase().includes("reading") ||
+    practiceType.toLowerCase().includes("part");
+
+  const inferredPart = isReadingFocus
+    ? inferReadingPartFromPracticeType(practiceType)
+    : null;
+  const readingPartHint = formatReadingPartHint(inferredPart);
+  const clbHint = isReadingFocus
+    ? formatClbBandHint(options?.targetClbBand ?? null)
+    : "";
+  const readingTagSpec = isReadingFocus
+    ? `\n5. ${readingTaggingBlock()}`
+    : "";
+
+  return `You are an expert CELPIP instructor building THEMED PRACTICE for a personal study plan.
+${THEMED_GENERATION_PREAMBLE}
+
 Focus Sub-test: ${focusSubTest}
-Target Concept: ${focusTarget}
-Practice Assignment Type: ${practiceType}
+Target skill / theme (primary): ${focusTarget}
+Format reference (secondary): ${practiceType}${readingPartHint}${clbHint}
 ${adaptiveNote}
 Provide a JSON response with these exact keys:
-1. "instructions": Markdown string containing a detailed tutorial and high-scoring strategies.
-2. "example": An authentic CLB level 11/12 sample response or walkthrough.
-3. "examPrompt": The test prompt. (If Writing: provide an email scenario or survey question. If Reading: provide a multi-paragraph text passage).
-4. "readingQuestions": An array of objects containing "question", "options" (array of 4 strings), and "correctAnswerIndex" (Only if focus is Reading).
+1. "instructions": Markdown tutorial tied to today's target skill (${focusTarget}), not generic test-day advice.
+2. "example": A worked example demonstrating the target skill at CLB 11/12 level.
+3. "examPrompt": The practice prompt${isReadingFocus ? " (reading passage in the CELPIP Part format above, full length and complexity)" : " (writing scenario)"}.
+4. "readingQuestions": An array of objects containing "question", "options" (array of 4 strings), "correctAnswerIndex"${isReadingFocus ? `, "celpipPart", "questionType", and "targetClbBand"` : ""} (Only if focus is Reading). Match the CELPIP Part's official question count when given (Part 1=11, Part 2=8, Part 3=9, Part 4=10); otherwise use 8-10 questions.${readingTagSpec}
+${isReadingFocus ? `6. "passageCelpipPart": one of part_1/part_2/part_3/part_4 reflecting the overall passage format.\n7. "passageTargetClbBand": integer 6-12 reflecting the overall passage difficulty.\n` : ""}
+Return ONLY valid JSON, no markdown fences.`;
+}
+
+export function buildReadingPassageOnlyPrompt(
+  focusTarget: string,
+  practiceType: string,
+  options?: {
+    setNumber?: number;
+    weakConcepts?: ConceptContext[];
+    strongConcepts?: ConceptContext[];
+    targetClbBand?: number;
+  },
+): string {
+  const setNote =
+    options?.setNumber != null
+      ? `\nThis is passage ${options.setNumber} in the same study session. Use a completely new scenario, topic, and wording — do not repeat prior passages.`
+      : "";
+
+  const weakBlock = formatConceptList(options?.weakConcepts);
+  const strongBlock = formatConceptList(options?.strongConcepts);
+
+  let adaptiveNote = "";
+  if (weakBlock) {
+    adaptiveNote += `\nStudent weakness areas (embed subtle practice in questions):\n${weakBlock}\n`;
+  }
+  if (strongBlock) {
+    adaptiveNote += `\nStudent strengths (maintain challenge):\n${strongBlock}\n`;
+  }
+
+  const inferredPart = inferReadingPartFromPracticeType(practiceType);
+  const partHint = formatReadingPartHint(inferredPart);
+  const clbHint = formatClbBandHint(options?.targetClbBand ?? null);
+
+  const isMock = /all reading parts|38 questions|mixed mini/i.test(practiceType);
+  const questionCount = isMock ? "8 to 12" : "8 to 10";
+
+  return `You are an expert CELPIP instructor. Generate a NEW themed reading passage (not an official test item).
+${THEMED_GENERATION_PREAMBLE}
+
+Target skill / theme (primary): ${focusTarget}
+Format reference (secondary): ${practiceType}${partHint}${clbHint}${setNote}${adaptiveNote}
+
+Provide a JSON response with these exact keys:
+1. "examPrompt": A reading passage matching the CELPIP Part format above (full length, full complexity, exam-realistic distractors).
+2. "readingQuestions": An array of ${questionCount} objects, each with "question", "options" (array of exactly 4 strings), "correctAnswerIndex" (0-3), "celpipPart", "questionType", and "targetClbBand" (integer 6-12).
+3. ${readingTaggingBlock()}
+4. "passageCelpipPart": one of part_1/part_2/part_3/part_4 reflecting the overall passage format.
+5. "passageTargetClbBand": integer 6-12 reflecting the overall passage difficulty.
 
 Return ONLY valid JSON, no markdown fences.`;
 }
@@ -308,6 +447,7 @@ export function buildReadingGradingPrompt(
   examPrompt: string,
   studentSubmission: string,
   scoreSummary: string,
+  questionCount: number,
 ): string {
   return `You are an authorized CELPIP Reading Test Grader.
 Reading Passage/Prompt: ${examPrompt}
@@ -323,9 +463,72 @@ Provide CELPIP-style feedback as JSON:
   "positives": ["string"],
   "constructiveCriticism": ["string"],
   "grammarCorrections": [],
+  "readingResults": [
+    {
+      "index": 0,
+      "feedback": "Brief feedback for question 1. If the student was wrong, explain why the correct answer fits the passage.",
+      "celpipPart": "part_1|part_2|part_3|part_4 (preserve from the question if present, otherwise classify the question)",
+      "questionType": "${READING_QUESTION_TYPE_IDS.join("|")}",
+      "targetClbBand": 6
+    }
+  ],
   ${SKILL_TAGS_SCHEMA}
 }
 
+Include exactly ${questionCount} readingResults entries in order (index 0 through ${questionCount - 1}).
+For correct answers, give brief reinforcement. For incorrect answers, explain why the correct option is right and why the student's choice was wrong.
+Always populate "celpipPart", "questionType", and "targetClbBand" (6-12) for every result, even if the source question lacked them.
 Include skillTags for reading strategy strengths/weaknesses (e.g. distractor_analysis, inference_implied_meaning).
+Return ONLY valid JSON, no markdown fences.`;
+}
+
+export type CelpipMockSegmentTarget =
+  | { kind: "reading_part"; celpipPart: CelpipReadingPart; questionCount: number }
+  | { kind: "writing_task"; task: "task_1" | "task_2" };
+
+export function buildCelpipMockPrompt(input: {
+  target: CelpipMockSegmentTarget;
+  targetClbBand?: number;
+}): string {
+  const clbHint = formatClbBandHint(input.targetClbBand ?? 10);
+
+  if (input.target.kind === "writing_task") {
+    const isTask1 = input.target.task === "task_1";
+    const taskLabel = isTask1
+      ? "Task 1: Writing an Email"
+      : "Task 2: Responding to Survey Questions";
+    const taskDetail = isTask1
+      ? "Task 1 is a 27-minute email writing task. Provide a realistic situation, recipient identification, the reason the candidate is writing, and three concrete bullet points the response must address. Tone may be formal or informal depending on the recipient relationship."
+      : "Task 2 is a 26-minute survey opinion task. Provide a survey question with exactly two clearly distinct options labelled. The candidate must pick one option and justify their choice with reasons and examples in 150-200 words.";
+
+    return `You are an authorized CELPIP test author. Generate an OFFICIAL-FORMAT CELPIP Writing prompt.
+${CELPIP_MOCK_GENERATION_PREAMBLE}
+
+${taskLabel}
+${taskDetail}${clbHint}
+
+Return a JSON object with exactly one key: {"examPrompt": "<the writing scenario, formatted in markdown when helpful>"}.
+
+Return ONLY valid JSON, no markdown fences.`;
+  }
+
+  const part = input.target.celpipPart;
+  const partBlurb = READING_PART_BLURBS[part];
+  const questionCount = input.target.questionCount;
+
+  return `You are an authorized CELPIP test author. Generate an OFFICIAL-FORMAT CELPIP Reading passage.
+${CELPIP_MOCK_GENERATION_PREAMBLE}
+
+Target Part: ${part}
+${partBlurb}${clbHint}
+
+This is a strict CELPIP practice test item — match official length, register, structure, and distractor design exactly. No scaffolding, no vocabulary glosses, no skill hints.
+
+Provide a JSON response with these exact keys:
+1. "examPrompt": The reading passage in CELPIP ${part} format (full length, full complexity).
+2. "readingQuestions": An array of exactly ${questionCount} objects, each with "question", "options" (4 strings), "correctAnswerIndex" (0-3), "celpipPart" = "${part}", "questionType" (one of ${READING_QUESTION_TYPE_IDS.join("/")}), and "targetClbBand" (integer 6-12).
+3. "passageCelpipPart": "${part}".
+4. "passageTargetClbBand": integer 6-12.
+
 Return ONLY valid JSON, no markdown fences.`;
 }

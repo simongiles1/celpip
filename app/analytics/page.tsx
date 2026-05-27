@@ -2,6 +2,12 @@
 
 import { ConceptTrendChart } from "@/components/analytics/ConceptTrendChart";
 import { MistakeLog } from "@/components/analytics/MistakeLog";
+import { MockHistory } from "@/components/analytics/MockHistory";
+import { ReadingDifficultyTrend } from "@/components/analytics/ReadingDifficultyTrend";
+import { ReadingPacingChart } from "@/components/analytics/ReadingPacingChart";
+import { ReadingPartAccuracy } from "@/components/analytics/ReadingPartAccuracy";
+import { ReadingQuestionTypeAccuracy } from "@/components/analytics/ReadingQuestionTypeAccuracy";
+import { ReadingStaminaCurve } from "@/components/analytics/ReadingStaminaCurve";
 import { ScoreTimeline } from "@/components/analytics/ScoreTimeline";
 import { SkillProfileSummary } from "@/components/analytics/SkillProfileSummary";
 import { Button } from "@/components/ui/button";
@@ -88,6 +94,27 @@ export default function AnalyticsPage() {
 
       <ScoreTimeline />
       <SkillProfileSummary />
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">
+            Reading diagnostics
+          </h2>
+          <p className="text-sm text-gray-600">
+            Where you struggle in reading, broken down by CELPIP Part, question
+            type, pacing, and stamina.
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ReadingPartAccuracy />
+          <ReadingQuestionTypeAccuracy />
+          <ReadingPacingChart />
+          <ReadingStaminaCurve />
+        </div>
+        <ReadingDifficultyTrend />
+      </section>
+
+      <MockHistory />
       <ConceptTrendChart />
       <MistakeLog />
     </div>

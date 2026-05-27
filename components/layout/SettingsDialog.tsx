@@ -33,6 +33,12 @@ export function SettingsDialog() {
   const [resetError, setResetError] = useState<string | null>(null);
   const geminiModel = useStudyStore((s) => s.geminiModel);
   const setGeminiModel = useStudyStore((s) => s.setGeminiModel);
+  const preferredReadingClbBand = useStudyStore(
+    (s) => s.preferredReadingClbBand,
+  );
+  const setPreferredReadingClbBand = useStudyStore(
+    (s) => s.setPreferredReadingClbBand,
+  );
   const rebuildSchedule = useStudyStore((s) => s.rebuildSchedule);
   const resetStudyProgram = useStudyStore((s) => s.resetStudyProgram);
   const settings = useStudyStore((s) => s.settings);
@@ -55,7 +61,7 @@ export function SettingsDialog() {
 
   const handleRebuildSchedule = async () => {
     const confirmed = window.confirm(
-      "Rebuild the study calendar from your saved exam date? Each day gets a 45-minute writing session at 9:00 and a 45-minute reading session at 10:00. Completed session statuses are kept where the same unit falls on the same day.",
+      "Rebuild the study calendar from your saved exam date? Each day gets a 45-minute themed writing session at 9:00 and a 45-minute themed reading session at 10:00. Completed session statuses are kept where the same unit falls on the same day.",
     );
     if (!confirmed) return;
 
@@ -153,6 +159,43 @@ export function SettingsDialog() {
                   </label>
                 );
               })}
+            </div>
+          </section>
+
+          <section className="space-y-3 border-t border-gray-100 pt-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">
+                Themed reading difficulty
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Default CLB band (6-12) used when generating new themed reading
+                passages. Can also be adjusted per-session from the slider in a
+                reading session.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-semibold">
+                CLB {preferredReadingClbBand}
+              </span>
+              <input
+                type="range"
+                min={6}
+                max={12}
+                step={1}
+                value={preferredReadingClbBand}
+                onChange={(e) =>
+                  setPreferredReadingClbBand(Number(e.target.value))
+                }
+                aria-label="Default themed reading CLB band"
+                className="h-2 w-48 cursor-pointer accent-blue-600"
+              />
+              <span className="text-xs text-gray-500">
+                {preferredReadingClbBand <= 7
+                  ? "Foundational — simpler vocab, direct questions"
+                  : preferredReadingClbBand <= 9
+                    ? "Standard — exam-level register"
+                    : "Advanced — academic vocab, fine inference"}
+              </span>
             </div>
           </section>
 

@@ -92,6 +92,44 @@ export interface ConceptDrillResult {
   feedback: string;
 }
 
+export type CelpipReadingPart = "part_1" | "part_2" | "part_3" | "part_4";
+
+export type ReadingQuestionType =
+  | "main_idea"
+  | "detail_extraction"
+  | "inference"
+  | "paraphrase_recognition"
+  | "vocabulary_in_context"
+  | "distractor_analysis"
+  | "tone_attitude";
+
+export interface ReadingQuestionResult {
+  index: number;
+  isCorrect: boolean;
+  studentAnswer: string;
+  correctAnswer: string;
+  feedback: string;
+  celpipPart?: CelpipReadingPart;
+  questionType?: ReadingQuestionType;
+  targetClbBand?: number;
+  timeSpentSeconds?: number;
+}
+
+export interface ReadingGradeMetadata {
+  score: { correct: number; total: number };
+  readingResults: ReadingQuestionResult[];
+  estimatedBand: number;
+  passageCelpipPart?: CelpipReadingPart;
+  passageTargetClbBand?: number;
+  passageDurationSeconds?: number;
+}
+
+export interface ReadingSubmissionEnvelope {
+  answers: Record<string, number>;
+  gradeMetadata?: ReadingGradeMetadata;
+  questionTimings?: Record<string, number>;
+}
+
 export interface ConceptWritingResult {
   feedback: string;
   isAcceptable: boolean;
@@ -119,6 +157,9 @@ export interface ReadingQuestion {
   question: string;
   options: string[];
   correctAnswerIndex: number;
+  celpipPart?: CelpipReadingPart;
+  questionType?: ReadingQuestionType;
+  targetClbBand?: number;
 }
 
 export interface StudyEvent {
@@ -136,11 +177,15 @@ export interface GeneratedContent {
   example: string;
   examPrompt: string;
   readingQuestions?: ReadingQuestion[];
+  /** Saved in-progress answers before a passage is submitted for grading. */
+  readingAnswers?: Record<string, number>;
   conceptDrillItems?: ConceptDrillItem[];
   conceptId?: string;
   setNumber?: number;
   generatedAt: string;
   geminiUsage?: GeminiCostBreakdown;
+  passageCelpipPart?: CelpipReadingPart;
+  passageTargetClbBand?: number;
 }
 
 export interface GrammarCorrection {
@@ -158,9 +203,14 @@ export interface GradedSession {
   positives: string[];
   constructiveCriticism: string[];
   grammarCorrections: GrammarCorrection[];
-  studentSubmission: string | Record<string, number>;
+  studentSubmission:
+    | string
+    | Record<string, number>
+    | ReadingSubmissionEnvelope;
   gradedAt: string;
   geminiUsage?: GeminiCostBreakdown;
+  isMock?: boolean;
+  mockSpecId?: string;
 }
 
 export interface AppSettings {
@@ -171,6 +221,8 @@ export interface AppSettings {
 
 export interface UserPreferences {
   geminiModel: GeminiModel;
+  /** Default CLB band (6-12) used when generating themed reading passages. */
+  preferredReadingClbBand?: number;
 }
 
 export type SessionMode = "subtest" | "concept" | "review";
@@ -182,6 +234,8 @@ export interface GenerateResponse {
   readingQuestions?: ReadingQuestion[];
   conceptDrillItems?: ConceptDrillItem[];
   geminiUsage?: GeminiCostBreakdown;
+  passageCelpipPart?: CelpipReadingPart;
+  passageTargetClbBand?: number;
 }
 
 export interface GradeResponse {
@@ -192,6 +246,7 @@ export interface GradeResponse {
   grammarCorrections: GrammarCorrection[];
   skillTags?: SkillTag[];
   drillResults?: ConceptDrillResult[];
+  readingResults?: ReadingQuestionResult[];
   writingResult?: ConceptWritingResult;
   geminiUsage?: GeminiCostBreakdown;
 }

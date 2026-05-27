@@ -41,6 +41,7 @@ interface StudyStore {
   hydrated: boolean;
   settings: AppSettings | null;
   geminiModel: GeminiModel;
+  preferredReadingClbBand: number;
   events: StudyEvent[];
   generated: GeneratedContent[];
   graded: GradedSession[];
@@ -54,11 +55,16 @@ interface StudyStore {
   rebuildSchedule: () => Promise<void>;
   resetStudyProgram: () => Promise<void>;
   setGeminiModel: (model: GeminiModel) => void;
+  setPreferredReadingClbBand: (band: number) => void;
   setSelectedEventId: (id: string | null) => void;
   setSelectedConceptId: (id: string | null) => void;
   updateEvent: (event: StudyEvent) => void;
   updateEvents: (events: StudyEvent[]) => void;
   addGenerated: (content: GeneratedContent) => void;
+  updateReadingAnswers: (
+    eventId: string,
+    answers: Record<string, number>,
+  ) => void;
   removeGeneratedForEvent: (eventId: string) => void;
   getGeneratedForEvent: (eventId: string) => GeneratedContent | undefined;
   addGraded: (
@@ -83,10 +89,16 @@ interface StudyStore {
   ) => void;
 }
 
+function clampClbBand(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 9;
+  return Math.max(6, Math.min(12, Math.round(value)));
+}
+
 export const useStudyStore = create<StudyStore>((set, get) => ({
   hydrated: false,
   settings: null,
   geminiModel: DEFAULT_GEMINI_MODEL,
+  preferredReadingClbBand: 9,
   events: [],
   generated: [],
   graded: [],
@@ -101,6 +113,9 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       hydrated: true,
       settings: data.settings,
       geminiModel: data.preferences.geminiModel,
+      preferredReadingClbBand: clampClbBand(
+        data.preferences.preferredReadingClbBand,
+      ),
       events: data.events,
       generated: data.generated,
       graded: data.graded,
@@ -152,8 +167,20 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   },
 
   setGeminiModel: (model) => {
-    persistPreferences({ geminiModel: model });
+    persistPreferences({
+      geminiModel: model,
+      preferredReadingClbBand: get().preferredReadingClbBand,
+    });
     set({ geminiModel: model });
+  },
+
+  setPreferredReadingClbBand: (band) => {
+    const clamped = clampClbBand(band);
+    persistPreferences({
+      geminiModel: get().geminiModel,
+      preferredReadingClbBand: clamped,
+    });
+    set({ preferredReadingClbBand: clamped });
   },
 
   initializeProgram: async (examDate: string) => {
@@ -213,6 +240,23 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     const generated = [
       ...get().generated.filter((g) => g.eventId !== content.eventId),
       content,
+    ];
+    persistGenerated(generated);
+    set({ generated });
+  },
+
+  updateReadingAnswers: (eventId, answers) => {
+    const existing = get().generated.find((g) => g.eventId === eventId);
+    if (!existing) return;
+
+    const updated: GeneratedContent = {
+      ...existing,
+      readingAnswers:
+        Object.keys(answers).length > 0 ? answers : undefined,
+    };
+    const generated = [
+      ...get().generated.filter((g) => g.eventId !== eventId),
+      updated,
     ];
     persistGenerated(generated);
     set({ generated });

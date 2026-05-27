@@ -6,12 +6,32 @@ import {
   buildGradingPrompt,
   buildReadingGradingPrompt,
 } from "@/lib/prompts";
+import { buildReadingResults } from "@/lib/reading-submission";
 import { NextResponse } from "next/server";
+
+const celpipReadingPartSchema = z.enum([
+  "part_1",
+  "part_2",
+  "part_3",
+  "part_4",
+]);
+const readingQuestionTypeSchema = z.enum([
+  "main_idea",
+  "detail_extraction",
+  "inference",
+  "paraphrase_recognition",
+  "vocabulary_in_context",
+  "distractor_analysis",
+  "tone_attitude",
+]);
 
 const readingQuestionSchema = z.object({
   question: z.string(),
   options: z.array(z.string()),
   correctAnswerIndex: z.number(),
+  celpipPart: celpipReadingPartSchema.optional(),
+  questionType: readingQuestionTypeSchema.optional(),
+  targetClbBand: z.number().int().min(6).max(12).optional(),
 });
 
 const skillTagSchema = z.object({
@@ -57,6 +77,17 @@ const responseSchema = z.object({
   ),
   skillTags: z.array(skillTagSchema).optional().default([]),
   drillResults: z.array(drillResultSchema).optional(),
+  readingResults: z
+    .array(
+      z.object({
+        index: z.number(),
+        feedback: z.string(),
+        celpipPart: celpipReadingPartSchema.optional(),
+        questionType: readingQuestionTypeSchema.optional(),
+        targetClbBand: z.number().int().min(6).max(12).optional(),
+      }),
+    )
+    .optional(),
   writingResult: z
     .object({
       isAcceptable: z.boolean(),
@@ -115,6 +146,7 @@ export async function POST(request: Request) {
         input.examPrompt,
         JSON.stringify(input.studentSubmission),
         score.summary,
+        input.readingQuestions.length,
       );
     } else if (input.focusSubTest === "Concept" && input.conceptLabel) {
       const submission =
@@ -161,6 +193,28 @@ export async function POST(request: Request) {
     const result = validated.data;
     if (autoBand !== undefined) {
       result.estimatedBand = Math.round((result.estimatedBand + autoBand) / 2);
+    }
+
+    if (
+      input.focusSubTest === "Reading" &&
+      typeof input.studentSubmission === "object" &&
+      input.readingQuestions?.length
+    ) {
+      const aiFeedback = result.readingResults?.map((item) => ({
+        index: item.index,
+        isCorrect: false,
+        studentAnswer: "",
+        correctAnswer: "",
+        feedback: item.feedback,
+        celpipPart: item.celpipPart,
+        questionType: item.questionType,
+        targetClbBand: item.targetClbBand,
+      }));
+      result.readingResults = buildReadingResults(
+        input.studentSubmission,
+        input.readingQuestions,
+        aiFeedback,
+      );
     }
 
     return NextResponse.json({ ...result, geminiUsage: usage });
