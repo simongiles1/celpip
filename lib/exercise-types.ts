@@ -15,7 +15,7 @@ export const EXERCISE_KIND_META: Record<
   themed: {
     label: "Themed practice",
     shortDescription:
-      "Calendar sessions from your study plan — skill-focused practice, not official test items.",
+      "Calendar sessions from your study plan — exam-format practice biased toward today's focus skill.",
   },
   celpip_mock: {
     label: "CELPIP practice test",
@@ -48,8 +48,8 @@ export function getThemedSessionIntro(subTest: "Reading" | "Writing"): {
     badge: EXERCISE_KIND_META.themed.label,
     disclaimer:
       subTest === "Reading"
-        ? "Themed reading practice from your study schedule — not an official CELPIP passage."
-        : "Themed writing practice from your study schedule — not an official CELPIP task.",
+        ? "Themed practice — exam-format passage, biased toward today's focus skill."
+        : "Themed practice — exam-format task, biased toward today's focus skill.",
   };
 }
 
@@ -60,8 +60,15 @@ export function getThemedReadingStartCopy(options: {
 }): { title: string; body: string } {
   return {
     title: "Ready for themed reading practice?",
-    body: `Today's focus: ${options.focusTarget}. You have ${options.sessionLimitLabel} for this study block. Suggested pace: about ${options.suggestedPassageLabel} per passage — adjust as needed. Content is generated to practice the skill, not to replicate a full CELPIP part.`,
+    body: `Today's focus: ${options.focusTarget}. You have ${options.sessionLimitLabel} for this study block. Suggested pace: about ${options.suggestedPassageLabel} per passage — adjust as needed. Real CELPIP Part format with 5-7 questions weighted toward ${options.focusTarget}. Use the remaining time to try another passage.`,
   };
+}
+
+function inferThemedWritingTaskLabel(practiceType: string): string {
+  const t = practiceType.toLowerCase();
+  if (/email|task\s*1/.test(t)) return "CELPIP Task 1 (email)";
+  if (/survey|task\s*2/.test(t)) return "CELPIP Task 2 (survey opinion)";
+  return practiceType;
 }
 
 export function getThemedWritingStartCopy(options: {
@@ -69,15 +76,19 @@ export function getThemedWritingStartCopy(options: {
   suggestedTimeLabel: string;
   practiceType: string;
 }): { title: string; body: string } {
+  const taskLabel = inferThemedWritingTaskLabel(options.practiceType);
   return {
     title: "Ready for themed writing practice?",
-    body: `Today's focus: ${options.focusTarget}. Suggested time: ${options.suggestedTimeLabel} (loosely based on ${options.practiceType} format for practice only). The prompt stays hidden until you start. This is not an official CELPIP task.`,
+    body: `Today's focus: ${options.focusTarget}. Format: ${taskLabel}. Suggested time: ${options.suggestedTimeLabel}. The prompt stays hidden until you start. Write 150-200 words addressing all required points.`,
   };
 }
 
-export const THEMED_GENERATION_PREAMBLE = `IMPORTANT — EXERCISE TYPE: THEMED PRACTICE (not an official CELPIP test item).
-This module is for the student's personal study schedule. Prioritize the target skill/concept over exam authenticity.
-Use the practice assignment type only as a loose format reference. Shorter passages, fewer questions, or abbreviated tasks are expected.`;
+export const THEMED_GENERATION_PREAMBLE = `IMPORTANT — EXERCISE TYPE: THEMED PRACTICE (skill-focused, exam-format).
+This module is part of the student's personal study schedule. The student has only weeks before their CELPIP, so practice must resemble real exam items.
+- Match the specified CELPIP Part / Task structure, register, length, and tone EXACTLY (same as a practice test would).
+- The "lighter" aspect is question count only: use 5-7 reading questions per passage instead of the official 8-11, so the student can attempt multiple passages with feedback in one session.
+- Bias the question-type mix toward the day's target skill (see Question-mix bias below) while keeping the passage exam-realistic.
+- Distractors, vocabulary, and difficulty must remain CELPIP-grade — do not simplify.`;
 
 export const CELPIP_MOCK_GENERATION_PREAMBLE = `IMPORTANT — EXERCISE TYPE: CELPIP PRACTICE TEST (strict format).
 This is an official-style CELPIP practice test item, NOT a themed skill drill. Apply these constraints:

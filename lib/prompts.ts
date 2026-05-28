@@ -63,6 +63,39 @@ function inferReadingPartFromPracticeType(
   return null;
 }
 
+function inferPreferredQuestionTypes(focusTarget: string): ReadingQuestionType[] {
+  const t = focusTarget.toLowerCase();
+  const out: ReadingQuestionType[] = [];
+  if (/inference|implied|tone|attitude|author intent|viewpoint|nuance/.test(t))
+    out.push("inference", "tone_attitude");
+  if (/main idea|gist|overall/.test(t)) out.push("main_idea");
+  if (/detail|fact|extract|specific/.test(t)) out.push("detail_extraction");
+  if (/paraphras|synonym|vocabulary in context|matching abstract/.test(t))
+    out.push("paraphrase_recognition", "vocabulary_in_context");
+  if (/distract|elimination|process of elimination/.test(t))
+    out.push("distractor_analysis");
+  if (/skimming|scanning|info[ -]?matching/.test(t))
+    out.push("main_idea", "detail_extraction");
+  return Array.from(new Set(out));
+}
+
+function formatQuestionMixBias(focusTarget: string): string {
+  const preferred = inferPreferredQuestionTypes(focusTarget);
+  if (!preferred.length) return "";
+  return `\n\nQuestion-mix bias: Roughly 60% of questions should target these question types: ${preferred.join(", ")}. Fill the remaining ~40% with other types so the passage still resembles a real CELPIP Part.`;
+}
+
+function formatThemedWritingTaskHint(practiceType: string): string {
+  const t = practiceType.toLowerCase();
+  if (/email|task\s*1/.test(t)) {
+    return `\n\nWriting task structure (CELPIP Task 1 — Email): Provide a realistic email scenario with a recipient, a reason for writing, and exactly three bullet points the student must address. Target response length: 150-200 words. Tone may be formal or informal depending on the recipient relationship.`;
+  }
+  if (/survey|task\s*2/.test(t)) {
+    return `\n\nWriting task structure (CELPIP Task 2 — Survey Opinion): Provide a survey question with exactly two clearly labelled options. The student must pick one option and defend their choice with reasons and examples. Target response length: 150-200 words.`;
+  }
+  return `\n\nWriting task structure: Provide a realistic CELPIP-style writing scenario. Target response length: 150-200 words.`;
+}
+
 function readingTaggingBlock(): string {
   return `For EACH question include "celpipPart" (one of ${READING_PART_IDS.join(", ")}), "questionType" (one of ${READING_QUESTION_TYPE_IDS.join(", ")}), and "targetClbBand" (integer 6-12 reflecting the question's intended difficulty). Also include a passage-level "passageCelpipPart" (string) and "passageTargetClbBand" (integer 6-12). Question types: ${Object.entries(
     READING_QUESTION_TYPE_LABELS,
@@ -187,19 +220,27 @@ export function buildGenerationPrompt(
   const readingTagSpec = isReadingFocus
     ? `\n5. ${readingTaggingBlock()}`
     : "";
+  const questionMixBias = isReadingFocus ? formatQuestionMixBias(focusTarget) : "";
+  const writingTaskHint =
+    focusSubTest === "Writing" && !isReadingFocus
+      ? formatThemedWritingTaskHint(practiceType)
+      : "";
+  const readingQuestionsSpec = isReadingFocus
+    ? `(Only if focus is Reading). Use 5-7 questions per passage.${questionMixBias}${readingTagSpec}`
+    : `(Only if focus is Reading). Omit this key for writing sessions.`;
 
   return `You are an expert CELPIP instructor building THEMED PRACTICE for a personal study plan.
 ${THEMED_GENERATION_PREAMBLE}
 
 Focus Sub-test: ${focusSubTest}
 Target skill / theme (primary): ${focusTarget}
-Format reference (secondary): ${practiceType}${readingPartHint}${clbHint}
+Format reference (secondary): ${practiceType}${readingPartHint}${clbHint}${questionMixBias}${writingTaskHint}
 ${adaptiveNote}
 Provide a JSON response with these exact keys:
 1. "instructions": Markdown tutorial tied to today's target skill (${focusTarget}), not generic test-day advice.
 2. "example": A worked example demonstrating the target skill at CLB 11/12 level.
 3. "examPrompt": The practice prompt${isReadingFocus ? " (reading passage in the CELPIP Part format above, full length and complexity)" : " (writing scenario)"}.
-4. "readingQuestions": An array of objects containing "question", "options" (array of 4 strings), "correctAnswerIndex"${isReadingFocus ? `, "celpipPart", "questionType", and "targetClbBand"` : ""} (Only if focus is Reading). Match the CELPIP Part's official question count when given (Part 1=11, Part 2=8, Part 3=9, Part 4=10); otherwise use 8-10 questions.${readingTagSpec}
+4. "readingQuestions": An array of objects containing "question", "options" (array of 4 strings), "correctAnswerIndex"${isReadingFocus ? `, "celpipPart", "questionType", and "targetClbBand"` : ""} ${readingQuestionsSpec}
 ${isReadingFocus ? `6. "passageCelpipPart": one of part_1/part_2/part_3/part_4 reflecting the overall passage format.\n7. "passageTargetClbBand": integer 6-12 reflecting the overall passage difficulty.\n` : ""}
 Return ONLY valid JSON, no markdown fences.`;
 }
@@ -235,13 +276,14 @@ export function buildReadingPassageOnlyPrompt(
   const clbHint = formatClbBandHint(options?.targetClbBand ?? null);
 
   const isMock = /all reading parts|38 questions|mixed mini/i.test(practiceType);
-  const questionCount = isMock ? "8 to 12" : "8 to 10";
+  const questionCount = isMock ? "8 to 12" : "5 to 7";
+  const questionMixBias = formatQuestionMixBias(focusTarget);
 
-  return `You are an expert CELPIP instructor. Generate a NEW themed reading passage (not an official test item).
+  return `You are an expert CELPIP instructor. Generate a NEW themed reading passage.
 ${THEMED_GENERATION_PREAMBLE}
 
 Target skill / theme (primary): ${focusTarget}
-Format reference (secondary): ${practiceType}${partHint}${clbHint}${setNote}${adaptiveNote}
+Format reference (secondary): ${practiceType}${partHint}${clbHint}${questionMixBias}${setNote}${adaptiveNote}
 
 Provide a JSON response with these exact keys:
 1. "examPrompt": A reading passage matching the CELPIP Part format above (full length, full complexity, exam-realistic distractors).
