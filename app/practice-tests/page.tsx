@@ -144,8 +144,7 @@ export default function PracticeTestsPage() {
         <CardHeader>
           <CardTitle className="text-base">Recent attempts</CardTitle>
           <CardDescription>
-            Mocks you have completed. Click to view full analytics on the
-            Analytics page.
+            Mocks you have completed. Click an attempt to review your scores.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -156,21 +155,23 @@ export default function PracticeTestsPage() {
           ) : (
             <ul className="space-y-2">
               {attempts.map((a) => (
-                <li
-                  key={a.attemptId}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-gray-900">
-                      {a.spec?.label ?? a.specId}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {format(new Date(a.gradedAt), "EEE MMM d, h:mm a")}
-                    </p>
-                  </div>
-                  <Badge variant="success">
-                    CLB {Math.round(a.estimatedBand)}
-                  </Badge>
+                <li key={a.attemptId}>
+                  <Link
+                    href={`/practice-tests/attempts/${a.attemptId}`}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2 transition-colors hover:border-gray-300 hover:bg-gray-50"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {a.spec?.label ?? a.specId}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {format(new Date(a.gradedAt), "EEE MMM d, h:mm a")}
+                      </p>
+                    </div>
+                    <Badge variant="success">
+                      CLB {Math.round(a.estimatedBand)}
+                    </Badge>
+                  </Link>
                 </li>
               ))}
             </ul>
