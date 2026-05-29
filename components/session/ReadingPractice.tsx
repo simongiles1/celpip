@@ -173,28 +173,33 @@ function GradedQuestionFeedback({
   result: NonNullable<GradeResponse["readingResults"]>[number];
 }) {
   return (
-    <span
-      tabIndex={0}
-      className="group relative ml-2 inline-flex shrink-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-      aria-label={
-        result.isCorrect
-          ? `Correct. ${result.feedback}`
-          : `Incorrect. Correct answer: ${result.correctAnswer}. ${result.feedback}`
-      }
-    >
+    <span className="ml-2 inline-flex shrink-0">
       <QuestionResultBadge isCorrect={result.isCorrect} />
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden w-64 rounded-md border border-gray-200 bg-white p-2 text-left text-xs font-normal normal-case text-gray-700 shadow-lg group-hover:block group-focus-within:block"
-      >
-        {!result.isCorrect && (
-          <p className="mb-1 font-medium text-green-700">
-            Correct: {result.correctAnswer}
-          </p>
-        )}
-        <p>{result.feedback}</p>
-      </span>
     </span>
+  );
+}
+
+function GradedQuestionExplanation({
+  result,
+}: {
+  result: NonNullable<GradeResponse["readingResults"]>[number];
+}) {
+  if (result.isCorrect) {
+    if (!result.feedback.trim() || result.feedback === "Correct.") return null;
+    return (
+      <p className="mt-2 text-xs text-gray-600">{result.feedback}</p>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-gray-700">
+      <p className="font-medium text-green-700">
+        Correct answer: {result.correctAnswer}
+      </p>
+      {result.feedback.trim() && (
+        <p className="mt-1">{result.feedback}</p>
+      )}
+    </div>
   );
 }
 
@@ -209,25 +214,26 @@ function getOptionClassName({
   isGraded: boolean;
   inputLocked: boolean;
 }): string {
+  const base =
+    "flex w-full min-w-0 items-start gap-2 rounded-md border p-2 text-sm";
+
   if (isGraded) {
     if (selected && isCorrectOption) {
-      return "flex items-start gap-2 rounded-md border p-2 text-sm border-green-500 bg-green-50";
+      return `${base} border-green-500 bg-green-50`;
     }
     if (selected && !isCorrectOption) {
-      return "flex items-start gap-2 rounded-md border p-2 text-sm border-red-500 bg-red-50";
+      return `${base} border-red-500 bg-red-50`;
     }
     if (isCorrectOption) {
-      return "flex items-start gap-2 rounded-md border p-2 text-sm border-green-300 bg-green-50/70";
+      return `${base} border-green-300 bg-green-50/70`;
     }
-    return "flex items-start gap-2 rounded-md border p-2 text-sm border-gray-200";
+    return `${base} border-gray-200`;
   }
 
-  let optionClass =
-    "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm border-gray-200 hover:bg-gray-50";
+  let optionClass = `${base} cursor-pointer border-gray-200 hover:bg-gray-50`;
 
   if (selected) {
-    optionClass =
-      "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-sm border-blue-500 bg-blue-50";
+    optionClass = `${base} cursor-pointer border-blue-500 bg-blue-50`;
   }
 
   if (inputLocked) {
@@ -545,7 +551,7 @@ export function ReadingPractice({
                         return (
                           <fieldset
                             key={q.question}
-                            className={`space-y-2 ${
+                            className={`min-w-0 space-y-2 ${
                               result
                                 ? result.isCorrect
                                   ? "rounded-md border border-green-200 bg-green-50/30 p-2"
@@ -555,8 +561,8 @@ export function ReadingPractice({
                             onFocusCapture={() => onQuestionFocus?.(qIndex)}
                             onPointerDownCapture={() => onQuestionFocus?.(qIndex)}
                           >
-                            <legend className="flex items-start text-sm font-medium text-gray-900">
-                              <span>
+                            <legend className="flex w-full min-w-0 items-start gap-2 text-sm font-medium text-gray-900">
+                              <span className="min-w-0 flex-1 break-words">
                                 {qIndex + 1}. {q.question}
                               </span>
                               {isGraded && result && (
@@ -589,12 +595,17 @@ export function ReadingPractice({
                                       })
                                     }
                                     disabled={inputLocked || isGraded}
-                                    className="mt-0.5"
+                                    className="mt-0.5 shrink-0"
                                   />
-                                  <span>{option}</span>
+                                  <span className="min-w-0 flex-1 break-words">
+                                    {option}
+                                  </span>
                                 </label>
                               );
                             })}
+                            {isGraded && result && (
+                              <GradedQuestionExplanation result={result} />
+                            )}
                           </fieldset>
                         );
                       })}

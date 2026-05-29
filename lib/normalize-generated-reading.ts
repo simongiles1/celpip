@@ -30,18 +30,40 @@ function coerceClbBand(value: unknown): number | undefined {
   return undefined;
 }
 
-function coerceAnswerIndex(value: unknown): number | undefined {
-  let index: number | undefined;
+function parseRawAnswerIndex(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
-    index = Math.round(value);
-  } else if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) index = Math.round(parsed);
+    return Math.round(value);
   }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.round(parsed);
+  }
+  return undefined;
+}
+
+/** Detect whether the model used 0-3 (API contract) or 1-4 (legacy). */
+function detectAnswerIndexConvention(rawIndices: number[]): "zero-based" | "one-based" {
+  if (rawIndices.some((index) => index === 0)) return "zero-based";
+  if (rawIndices.some((index) => index === 4)) return "one-based";
+  // Prompt requires 0-3; default to that when ambiguous (e.g. only 1-3 present).
+  return "zero-based";
+}
+
+function coerceAnswerIndex(
+  value: unknown,
+  convention: "zero-based" | "one-based",
+): number | undefined {
+  const index = parseRawAnswerIndex(value);
   if (index == null) return undefined;
-  // Models often return 1-4 instead of 0-3.
-  if (index >= 1 && index <= 4) return index - 1;
+
+  if (convention === "one-based") {
+    if (index >= 1 && index <= 4) return index - 1;
+    if (index >= 0 && index <= 3) return index;
+    return undefined;
+  }
+
   if (index >= 0 && index <= 3) return index;
+  if (index === 4) return 3;
   return undefined;
 }
 
@@ -89,12 +111,18 @@ function normalizeOptions(value: unknown): string[] | undefined {
   return options.slice(0, 4);
 }
 
-function normalizeReadingQuestion(raw: unknown): Record<string, unknown> | null {
+function normalizeReadingQuestion(
+  raw: unknown,
+  convention: "zero-based" | "one-based",
+): Record<string, unknown> | null {
   if (!raw || typeof raw !== "object") return null;
   const question = raw as Record<string, unknown>;
   const prompt = typeof question.question === "string" ? question.question.trim() : "";
   const options = normalizeOptions(question.options);
-  const correctAnswerIndex = coerceAnswerIndex(question.correctAnswerIndex);
+  const correctAnswerIndex = coerceAnswerIndex(
+    question.correctAnswerIndex,
+    convention,
+  );
   if (!prompt || !options || correctAnswerIndex == null) return null;
 
   const normalized: Record<string, unknown> = {
@@ -137,8 +165,19 @@ export function normalizeGeneratedReadingPayload(parsed: unknown): unknown {
   }
 
   if (Array.isArray(next.readingQuestions)) {
+    const rawIndices = next.readingQuestions
+      .map((question) =>
+        question && typeof question === "object"
+          ? parseRawAnswerIndex(
+              (question as Record<string, unknown>).correctAnswerIndex,
+            )
+          : undefined,
+      )
+      .filter((index): index is number => index != null);
+    const convention = detectAnswerIndexConvention(rawIndices);
+
     next.readingQuestions = next.readingQuestions
-      .map(normalizeReadingQuestion)
+      .map((question) => normalizeReadingQuestion(question, convention))
       .filter((question): question is Record<string, unknown> => question != null);
   }
 
