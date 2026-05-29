@@ -549,8 +549,10 @@ export function ReadingPractice({
                         const selectedIndex = answers[String(qIndex)];
 
                         return (
-                          <fieldset
+                          <div
                             key={q.question}
+                            role="group"
+                            aria-labelledby={`q-${activePassageNumber}-${qIndex}-label`}
                             className={`min-w-0 space-y-2 ${
                               result
                                 ? result.isCorrect
@@ -561,14 +563,17 @@ export function ReadingPractice({
                             onFocusCapture={() => onQuestionFocus?.(qIndex)}
                             onPointerDownCapture={() => onQuestionFocus?.(qIndex)}
                           >
-                            <legend className="flex w-full min-w-0 items-start gap-2 text-sm font-medium text-gray-900">
+                            <div
+                              id={`q-${activePassageNumber}-${qIndex}-label`}
+                              className="flex w-full min-w-0 items-start gap-2 text-sm font-medium text-gray-900"
+                            >
                               <span className="min-w-0 flex-1 break-words">
                                 {qIndex + 1}. {q.question}
                               </span>
                               {isGraded && result && (
                                 <GradedQuestionFeedback result={result} />
                               )}
-                            </legend>
+                            </div>
                             {q.options.map((option, oIndex) => {
                               const selected = selectedIndex === oIndex;
                               const isCorrectOption =
@@ -606,7 +611,7 @@ export function ReadingPractice({
                             {isGraded && result && (
                               <GradedQuestionExplanation result={result} />
                             )}
-                          </fieldset>
+                          </div>
                         );
                       })}
                     </div>

@@ -5,6 +5,7 @@ import path from "path";
 import Database from "better-sqlite3";
 import { DEFAULT_GEMINI_MODEL, isGeminiModel } from "./gemini";
 import { emptySkillProfile } from "./skill-profile";
+import { migrateReadingAnswerIndices } from "./repair-reading-answer-indices";
 import type {
   AppSettings,
   ConceptCustomization,
@@ -664,7 +665,7 @@ export function insertFeedbackTicket(
 }
 
 export function loadAllData(): AppData {
-  return {
+  const raw = {
     settings: loadSettings(),
     preferences: loadPreferences(),
     events: loadEvents(),
@@ -672,6 +673,22 @@ export function loadAllData(): AppData {
     graded: loadGraded(),
     skillProfile: loadSkillProfile(),
     conceptCustomizations: loadConceptCustomizations(),
+  };
+
+  const migrated = migrateReadingAnswerIndices({
+    generated: raw.generated,
+    graded: raw.graded,
+  });
+
+  if (migrated.changed) {
+    saveGenerated(migrated.generated);
+    saveGraded(migrated.graded);
+  }
+
+  return {
+    ...raw,
+    generated: migrated.generated,
+    graded: migrated.graded,
   };
 }
 

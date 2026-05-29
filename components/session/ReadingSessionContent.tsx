@@ -8,6 +8,7 @@ import { useStudyStore } from "@/hooks/useStudyStore";
 import { combineGeminiUsage } from "@/lib/gemini-session-usage";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import {
+  getReadingPassageScore,
   formatPassageLabel,
   getBasePassageSet,
   getGeneratedPassagesForEvent,
@@ -21,9 +22,9 @@ import {
   buildReadingSubmissionEnvelope,
   getReadingAnswers,
   getReadingGradeMetadata,
-  gradeResponseFromReadingMetadata,
 } from "@/lib/reading-submission";
 import { getStrongConcepts, getWeakConcepts } from "@/lib/skill-profile";
+import { getReadingQuestionsForDisplay } from "@/lib/repair-reading-answer-indices";
 import type {
   CurriculumUnit,
   GenerateResponse,
@@ -149,8 +150,11 @@ export function ReadingSessionContent({
     [passageSets, activePassageNumber, baseSet],
   );
 
-  const activeQuestions = activeSet?.readingQuestions ?? [];
   const activeAnswers = answersByPassage[activePassageNumber] ?? {};
+  const activeQuestions = useMemo(() => {
+    if (!activeSet?.readingQuestions?.length) return [];
+    return getReadingQuestionsForDisplay(activeSet, activeAnswers);
+  }, [activeSet, activeAnswers]);
 
   const gradedPassageNumbers = useMemo(() => {
     const nums = new Set<number>();
@@ -188,18 +192,31 @@ export function ReadingSessionContent({
         const answers = getReadingAnswers(gradeSession.studentSubmission);
         hydrated[setNum] = answers;
         const metadata = getReadingGradeMetadata(gradeSession.studentSubmission);
-        const questions = set.readingQuestions ?? [];
-        grades[setNum] = metadata
-          ? gradeResponseFromReadingMetadata(metadata, gradeSession)
-          : {
-              estimatedBand: gradeSession.estimatedBand,
-              overallFeedback: gradeSession.overallFeedback,
-              positives: gradeSession.positives,
-              constructiveCriticism: gradeSession.constructiveCriticism,
-              grammarCorrections: gradeSession.grammarCorrections,
-              readingResults: buildReadingResults(answers, questions),
-              skillTags: [],
-            };
+        const questions = getReadingQuestionsForDisplay(set, answers);
+        const readingResults = buildReadingResults(
+          answers,
+          questions,
+          metadata?.readingResults,
+        );
+        const score = getReadingPassageScore(answers, questions);
+        const estimatedBand = Math.max(
+          1,
+          Math.min(
+            12,
+            Math.round(
+              score.total > 0 ? (score.correct / score.total) * 12 : 0,
+            ),
+          ),
+        );
+        grades[setNum] = {
+          estimatedBand,
+          overallFeedback: gradeSession.overallFeedback,
+          positives: gradeSession.positives,
+          constructiveCriticism: gradeSession.constructiveCriticism,
+          grammarCorrections: gradeSession.grammarCorrections,
+          readingResults,
+          skillTags: [],
+        };
         started[setNum] = true;
         anyProgress = true;
       } else if (hasReadingPassageAnswers(set.readingAnswers)) {
@@ -482,11 +499,13 @@ export function ReadingSessionContent({
   const passageOptions = passageSets.map((set) => {
     const setNum = set.setNumber ?? 1;
     const passageId = readingPassageEventId(event.id, setNum);
-    const score = getStoredReadingPassageScore(
-      graded,
-      passageId,
-      set.readingQuestions ?? [],
-    );
+    const gradeSession = getGradedForEvent(passageId);
+    const answers =
+      gradeSession && typeof gradeSession.studentSubmission === "object"
+        ? getReadingAnswers(gradeSession.studentSubmission)
+        : undefined;
+    const questions = getReadingQuestionsForDisplay(set, answers);
+    const score = getStoredReadingPassageScore(graded, passageId, questions);
     return {
       setNumber: setNum,
       label: formatPassageLabel(setNum, score),

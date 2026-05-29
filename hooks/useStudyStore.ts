@@ -23,6 +23,7 @@ import {
   persistSkillProfile,
   saveAllData,
 } from "@/lib/storage";
+import { migrateReadingAnswerIndices } from "@/lib/repair-reading-answer-indices";
 import type {
   AppSettings,
   ConceptChatMessage,
@@ -109,6 +110,16 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
 
   hydrate: async () => {
     const data = await loadAllData();
+    const migrated = migrateReadingAnswerIndices({
+      generated: data.generated,
+      graded: data.graded,
+    });
+    if (migrated.changed) {
+      await saveAllData({
+        generated: migrated.generated,
+        graded: migrated.graded,
+      });
+    }
     set({
       hydrated: true,
       settings: data.settings,
@@ -117,8 +128,8 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
         data.preferences.preferredReadingClbBand,
       ),
       events: data.events,
-      generated: data.generated,
-      graded: data.graded,
+      generated: migrated.generated,
+      graded: migrated.graded,
       skillProfile: data.skillProfile,
       conceptCustomizations: data.conceptCustomizations ?? [],
     });

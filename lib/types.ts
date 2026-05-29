@@ -186,6 +186,8 @@ export interface GeneratedContent {
   geminiUsage?: GeminiCostBreakdown;
   passageCelpipPart?: CelpipReadingPart;
   passageTargetClbBand?: number;
+  /** Applied when legacy correctAnswerIndex normalization is repaired in place. */
+  readingAnswerIndexRepairVersion?: number;
 }
 
 export interface GrammarCorrection {
