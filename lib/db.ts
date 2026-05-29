@@ -128,6 +128,7 @@ function initSchema(database: Database.Database): void {
   migratePreferredReadingClbColumn(database);
   migrateDailyVocabularyWordCountColumn(database);
   migrateVocabularyWordsColumn(database);
+  migrateVocabularyProgressColumn(database);
 }
 
 function migrateReadingClbColumns(database: Database.Database): void {
@@ -191,6 +192,17 @@ function migrateVocabularyWordsColumn(database: Database.Database): void {
   if (!cols.some((c) => c.name === "vocabulary_words")) {
     database.exec(
       `ALTER TABLE generated_content ADD COLUMN vocabulary_words TEXT`,
+    );
+  }
+}
+
+function migrateVocabularyProgressColumn(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(generated_content)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "vocabulary_progress")) {
+    database.exec(
+      `ALTER TABLE generated_content ADD COLUMN vocabulary_progress TEXT`,
     );
   }
 }
@@ -431,7 +443,8 @@ export function loadGenerated(): GeneratedContent[] {
   const rows = getDb()
     .prepare(
       `SELECT event_id, instructions, example, exam_prompt, reading_questions,
-              reading_answers, concept_drill_items, vocabulary_words, concept_id, generated_at, gemini_usage,
+              reading_answers, concept_drill_items, vocabulary_words, vocabulary_progress,
+              concept_id, generated_at, gemini_usage,
               passage_celpip_part, passage_target_clb_band
        FROM generated_content ORDER BY generated_at`,
     )
@@ -444,6 +457,7 @@ export function loadGenerated(): GeneratedContent[] {
     reading_answers: string | null;
     concept_drill_items: string | null;
     vocabulary_words: string | null;
+    vocabulary_progress: string | null;
     concept_id: string | null;
     generated_at: string;
     gemini_usage: string | null;
@@ -463,6 +477,7 @@ export function loadGenerated(): GeneratedContent[] {
     ),
     conceptDrillItems: parseJson(row.concept_drill_items, undefined),
     vocabularyWords: parseJson(row.vocabulary_words, undefined),
+    vocabularyProgress: parseJson(row.vocabulary_progress, undefined),
     ...(row.concept_id ? { conceptId: row.concept_id } : {}),
     generatedAt: row.generated_at,
     geminiUsage: parseJson(row.gemini_usage, undefined),
@@ -485,11 +500,13 @@ export function saveGenerated(items: GeneratedContent[]): void {
     const insert = database.prepare(
       `INSERT INTO generated_content (
          event_id, instructions, example, exam_prompt, reading_questions,
-         reading_answers, concept_drill_items, vocabulary_words, concept_id, generated_at, gemini_usage,
+         reading_answers, concept_drill_items, vocabulary_words, vocabulary_progress,
+         concept_id, generated_at, gemini_usage,
          passage_celpip_part, passage_target_clb_band
        ) VALUES (
          @eventId, @instructions, @example, @examPrompt, @readingQuestions,
-         @readingAnswers, @conceptDrillItems, @vocabularyWords, @conceptId, @generatedAt, @geminiUsage,
+         @readingAnswers, @conceptDrillItems, @vocabularyWords, @vocabularyProgress,
+         @conceptId, @generatedAt, @geminiUsage,
          @passageCelpipPart, @passageTargetClbBand
        )`,
     );
@@ -510,6 +527,9 @@ export function saveGenerated(items: GeneratedContent[]): void {
           : null,
         vocabularyWords: item.vocabularyWords
           ? JSON.stringify(item.vocabularyWords)
+          : null,
+        vocabularyProgress: item.vocabularyProgress
+          ? JSON.stringify(item.vocabularyProgress)
           : null,
         conceptId: item.conceptId ?? null,
         generatedAt: item.generatedAt,

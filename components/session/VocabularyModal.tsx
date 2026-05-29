@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { BookOpen, ChevronLeft, ChevronRight, Eye } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,62 +12,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { GeminiCostPopover } from "@/components/session/GeminiCostPopover";
+import { VocabularyPractice } from "@/components/session/VocabularyPractice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSelectedEvent, useStudyStore } from "@/hooks/useStudyStore";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
-import type { VocabularyWord } from "@/lib/types";
-
-function VocabularyCard({
-  word,
-  revealed,
-  onReveal,
-}: {
-  word: VocabularyWord;
-  revealed: boolean;
-  onReveal: () => void;
-}) {
-  return (
-    <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="text-2xl font-semibold text-gray-900">{word.word}</h3>
-          <p className="mt-1 text-sm text-gray-500">{word.partOfSpeech}</p>
-        </div>
-        {!revealed && (
-          <Button type="button" size="sm" variant="outline" onClick={onReveal}>
-            <Eye className="mr-1.5 h-4 w-4" />
-            Reveal
-          </Button>
-        )}
-      </div>
-
-      {revealed ? (
-        <div className="space-y-3 text-sm">
-          <p className="text-gray-800">{word.definition}</p>
-          {word.spokenAlternative && (
-            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
-              <span className="font-medium">Instead of saying </span>
-              &ldquo;{word.spokenAlternative}&rdquo;
-              <span className="font-medium"> in writing, use </span>
-              &ldquo;{word.word}&rdquo;.
-            </p>
-          )}
-          <blockquote className="border-l-4 border-teal-500 pl-3 italic text-gray-700">
-            {word.exampleSentence}
-          </blockquote>
-          <p className="text-gray-600">
-            <span className="font-medium text-gray-800">Writing tip: </span>
-            {word.writingTip}
-          </p>
-        </div>
-      ) : (
-        <p className="text-sm text-gray-500">
-          Try to recall the meaning, then reveal the definition and example.
-        </p>
-      )}
-    </div>
-  );
-}
+import type { VocabularyProgress, VocabularyWord } from "@/lib/types";
+import { hasValidVocabularyPractice } from "@/lib/vocabulary-validation";
 
 function VocabularyModalContent({
   eventId,
@@ -84,6 +34,7 @@ function VocabularyModalContent({
   );
   const getGeneratedForEvent = useStudyStore((s) => s.getGeneratedForEvent);
   const addGenerated = useStudyStore((s) => s.addGenerated);
+  const updateVocabularyProgress = useStudyStore((s) => s.updateVocabularyProgress);
   const markEventCompleted = useStudyStore((s) => s.markEventCompleted);
   const removeGeneratedForEvent = useStudyStore(
     (s) => s.removeGeneratedForEvent,
@@ -95,9 +46,10 @@ function VocabularyModalContent({
   );
   const [loading, setLoading] = useState(!cached?.vocabularyWords?.length);
   const [error, setError] = useState<string | null>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [revealed, setRevealed] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+
+  const needsRegeneration =
+    words.length > 0 && !hasValidVocabularyPractice(words);
 
   const fetchWords = useCallback(
     async (replaceCache: boolean) => {
@@ -124,8 +76,6 @@ function VocabularyModalContent({
         }
         const nextWords = data.words ?? [];
         setWords(nextWords);
-        setCurrentIndex(0);
-        setRevealed(false);
         onUsageChange(data.geminiUsage ?? null);
 
         if (replaceCache) {
@@ -163,30 +113,27 @@ function VocabularyModalContent({
   useEffect(() => {
     if (!cached?.vocabularyWords?.length) {
       void fetchWords(false);
-    } else {
-      onUsageChange(cached.geminiUsage ?? null);
+      return;
     }
+
+    if (!hasValidVocabularyPractice(cached.vocabularyWords)) {
+      void fetchWords(true);
+      return;
+    }
+
+    onUsageChange(cached.geminiUsage ?? null);
   }, [cached, fetchWords, onUsageChange]);
-
-  const currentWord = words[currentIndex];
-  const isLastWord = currentIndex >= words.length - 1;
-  const allRevealed = revealed || words.length === 0;
-
-  const handleNext = () => {
-    if (isLastWord) return;
-    setCurrentIndex((i) => i + 1);
-    setRevealed(false);
-  };
-
-  const handlePrevious = () => {
-    if (currentIndex <= 0) return;
-    setCurrentIndex((i) => i - 1);
-    setRevealed(true);
-  };
 
   const handleComplete = () => {
     markEventCompleted(eventId);
   };
+
+  const handleProgressChange = useCallback(
+    (progress: VocabularyProgress) => {
+      updateVocabularyProgress(eventId, progress);
+    },
+    [eventId, updateVocabularyProgress],
+  );
 
   if (loading && words.length === 0) {
     return (
@@ -208,58 +155,28 @@ function VocabularyModalContent({
     );
   }
 
+  if (needsRegeneration) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-gray-600">
+          Updating this session to the new practice format...
+        </p>
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <p className="text-sm text-gray-600">
-        {words.length} words for today — formal vocabulary to strengthen your
-        CELPIP writing. Reveal each word, read the example, then move on.
-      </p>
-
-      {currentWord && (
-        <VocabularyCard
-          word={currentWord}
-          revealed={revealed}
-          onReveal={() => setRevealed(true)}
-        />
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-gray-500">
-          Word {currentIndex + 1} of {words.length}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={handlePrevious}
-            disabled={currentIndex === 0}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Previous
-          </Button>
-          {!isLastWord ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleNext}
-              disabled={!allRevealed}
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleComplete}
-              disabled={!revealed}
-            >
-              Complete session
-            </Button>
-          )}
-        </div>
-      </div>
+      <VocabularyPractice
+        key={words
+          .map((word) => `${word.word}:${word.questions?.length ?? 0}`)
+          .join("|")}
+        words={words}
+        initialProgress={cached?.vocabularyProgress}
+        onProgressChange={handleProgressChange}
+        onComplete={handleComplete}
+      />
 
       <div className="border-t border-gray-100 pt-3">
         <Button

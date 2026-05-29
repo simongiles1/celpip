@@ -3,24 +3,15 @@ import { NextResponse } from "next/server";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
 import { buildVocabularyPrompt } from "@/lib/vocabulary-prompts";
+import {
+  validateWordQuestions,
+  vocabularyResponseSchema,
+} from "@/lib/vocabulary-validation";
 
 const requestSchema = z.object({
   wordCount: z.number().int().min(1).max(20),
   sessionDate: z.string(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
-});
-
-const vocabularyWordSchema = z.object({
-  word: z.string().min(1),
-  partOfSpeech: z.string().min(1),
-  definition: z.string().min(1),
-  exampleSentence: z.string().min(1),
-  writingTip: z.string().min(1),
-  spokenAlternative: z.string().optional(),
-});
-
-const responseSchema = z.object({
-  words: z.array(vocabularyWordSchema).min(1),
 });
 
 function parseJson(text: string): unknown {
@@ -51,23 +42,24 @@ export async function POST(request: Request) {
       "vocabulary-generate",
       parseJson,
       (value) => {
-        const result = responseSchema.safeParse(value);
+        const result = vocabularyResponseSchema.safeParse(value);
         if (!result.success) return false;
-        return result.data.words.length === wordCount;
+        if (result.data.words.length !== wordCount) return false;
+        return validateWordQuestions(value) === undefined;
       },
       {
         describeValidationFailure: (value) => {
-          const result = responseSchema.safeParse(value);
+          const result = vocabularyResponseSchema.safeParse(value);
           if (!result.success) return result.error.message;
           if (result.data.words.length !== wordCount) {
             return `Expected exactly ${wordCount} words, got ${result.data.words.length}.`;
           }
-          return undefined;
+          return validateWordQuestions(value);
         },
       },
     );
 
-    const payload = responseSchema.parse(parseJson(text));
+    const payload = vocabularyResponseSchema.parse(parseJson(text));
 
     return NextResponse.json({
       words: payload.words,

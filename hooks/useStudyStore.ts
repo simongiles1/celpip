@@ -35,6 +35,7 @@ import type {
   StudyEvent,
   UserPreferences,
   UserSkillProfile,
+  VocabularyProgress,
 } from "@/lib/types";
 import { upsertConceptCustomization } from "@/lib/concept-customizations";
 import { formatDateISO } from "@/lib/utils";
@@ -69,6 +70,10 @@ interface StudyStore {
   updateReadingAnswers: (
     eventId: string,
     answers: Record<string, number>,
+  ) => void;
+  updateVocabularyProgress: (
+    eventId: string,
+    progress: VocabularyProgress,
   ) => void;
   removeGeneratedForEvent: (eventId: string) => void;
   getGeneratedForEvent: (eventId: string) => GeneratedContent | undefined;
@@ -314,6 +319,25 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       ...existing,
       readingAnswers:
         Object.keys(answers).length > 0 ? answers : undefined,
+    };
+    const generated = [
+      ...get().generated.filter((g) => g.eventId !== eventId),
+      updated,
+    ];
+    persistGenerated(generated);
+    set({ generated });
+  },
+
+  updateVocabularyProgress: (eventId, progress) => {
+    const existing = get().generated.find((g) => g.eventId === eventId);
+    if (!existing) return;
+
+    const hasAnswers = Object.values(progress.answersByWord).some(
+      (wordAnswers) => wordAnswers.some((answer) => answer.checked),
+    );
+    const updated: GeneratedContent = {
+      ...existing,
+      vocabularyProgress: hasAnswers ? progress : undefined,
     };
     const generated = [
       ...get().generated.filter((g) => g.eventId !== eventId),

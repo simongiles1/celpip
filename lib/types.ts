@@ -11,6 +11,36 @@ export type FocusSubTest =
   | "Concept"
   | "EXAM";
 
+export type VocabularyQuestionType =
+  | "definition_choice"
+  | "word_fit_select"
+  | "synonym_choice";
+
+export interface VocabularyQuestion {
+  type: VocabularyQuestionType;
+  prompt: string;
+  /** Options for single- or multi-select questions. */
+  options?: string[];
+  /** Correct option index for definition_choice and synonym_choice. */
+  correctAnswerIndex?: number;
+  /** Correct option indexes for word_fit_select (check all that apply). */
+  correctAnswerIndexes?: number[];
+  /** Short explanation shown after the learner answers. */
+  explanation?: string;
+}
+
+export interface VocabularyQuestionAnswerState {
+  selectedIndex?: number;
+  selectedIndexes?: number[];
+  checked: boolean;
+  isCorrect?: boolean;
+}
+
+export interface VocabularyProgress {
+  currentWordIndex: number;
+  answersByWord: Record<string, VocabularyQuestionAnswerState[]>;
+}
+
 export interface VocabularyWord {
   word: string;
   partOfSpeech: string;
@@ -21,6 +51,8 @@ export interface VocabularyWord {
   writingTip: string;
   /** Informal or spoken alternative the learner might overuse in writing. */
   spokenAlternative?: string;
+  /** Practice questions for this word (definition, word-fit, synonyms). */
+  questions?: VocabularyQuestion[];
 }
 
 export type ConceptCategory =
@@ -197,6 +229,8 @@ export interface GeneratedContent {
   readingAnswers?: Record<string, number>;
   conceptDrillItems?: ConceptDrillItem[];
   vocabularyWords?: VocabularyWord[];
+  /** Saved in-progress vocabulary practice answers. */
+  vocabularyProgress?: VocabularyProgress;
   conceptId?: string;
   setNumber?: number;
   generatedAt: string;
