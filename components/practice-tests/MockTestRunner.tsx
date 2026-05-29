@@ -24,6 +24,7 @@ import {
   type MockSpec,
 } from "@/lib/celpip-mocks";
 import { buildReadingSubmissionEnvelope } from "@/lib/reading-submission";
+import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import type {
   CelpipReadingPart,
   GenerateResponse,
@@ -253,8 +254,12 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
         const eventId = segmentEventId(attemptIdRef.current, index);
 
         if (seg.kind === "reading_part") {
-          const questions = state.readingQuestions ?? [];
+          const rawQuestions = state.readingQuestions ?? [];
           const answers = state.answers;
+          const questions = getReadingQuestionsForGrading(rawQuestions, {
+            examPrompt: state.examPrompt,
+            studentAnswers: answers,
+          });
 
           const res = await fetch("/api/grade", {
             method: "POST",
@@ -289,6 +294,8 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
                   : undefined,
             },
           );
+          submission.readingQuestions = questions;
+          submission.examPrompt = state.examPrompt;
 
           addGraded(
             {
@@ -670,7 +677,14 @@ function SegmentBody({
     );
   }
 
-  const questions = state.readingQuestions ?? [];
+  const questions = useMemo(
+    () =>
+      getReadingQuestionsForGrading(state.readingQuestions ?? [], {
+        examPrompt: state.examPrompt,
+        studentAnswers: state.answers,
+      }),
+    [state.readingQuestions, state.examPrompt, state.answers],
+  );
   const allAnswered =
     questions.length > 0 &&
     questions.every((_, i) => state.answers[String(i)] !== undefined);

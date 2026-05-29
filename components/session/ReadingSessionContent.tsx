@@ -403,7 +403,9 @@ export function ReadingSessionContent({
     const passageSet = passageSets.find(
       (set) => (set.setNumber ?? 1) === setNumber,
     );
-    const questions = passageSet?.readingQuestions ?? [];
+    const questions = passageSet
+      ? getReadingQuestionsForDisplay(passageSet, answers)
+      : [];
     const timings = questionTimings[setNumber];
     const submission = buildReadingSubmissionEnvelope(
       answers,
@@ -453,7 +455,7 @@ export function ReadingSessionContent({
           focusSubTest: "Reading",
           examPrompt: activeSet.examPrompt,
           studentSubmission: activeAnswers,
-          readingQuestions: activeSet.readingQuestions as ReadingQuestion[],
+          readingQuestions: activeQuestions,
           model: geminiModel,
         }),
       });

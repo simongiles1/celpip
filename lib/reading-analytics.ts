@@ -1,4 +1,4 @@
-import { isReadingSubmissionEnvelope } from "@/lib/reading-submission";
+import { getReadingResultsForSession, isReadingSubmissionEnvelope } from "@/lib/reading-submission";
 import type {
   CelpipReadingPart,
   GradedSession,
@@ -63,7 +63,7 @@ export function getReadingResults(
 ): ReadingQuestionResult[] {
   if (session.focusSubTest !== "Reading") return [];
   if (!isReadingSubmissionEnvelope(session.studentSubmission)) return [];
-  return session.studentSubmission.gradeMetadata?.readingResults ?? [];
+  return getReadingResultsForSession(session);
 }
 
 /** All reading-question results across every graded reading session. */

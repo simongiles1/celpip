@@ -21,10 +21,22 @@ export function getReadingQuestionsForDisplay(
   ) {
     return content.readingQuestions;
   }
-  return repairLegacyReadingAnswerIndices(content.readingQuestions, {
+  return getReadingQuestionsForGrading(content.readingQuestions, {
     examPrompt: content.examPrompt,
     studentAnswers,
   });
+}
+
+/** Apply legacy correctAnswerIndex repair before grading or displaying. */
+export function getReadingQuestionsForGrading(
+  questions: ReadingQuestion[],
+  options?: {
+    examPrompt?: string;
+    studentAnswers?: Record<string, number>;
+  },
+): ReadingQuestion[] {
+  if (!questions.length) return [];
+  return repairLegacyReadingAnswerIndices(questions, options);
 }
 
 
@@ -281,19 +293,33 @@ export function migrateReadingAnswerIndices(data: {
     if (typeof session.studentSubmission !== "object") return session;
     if (!isReadingSubmissionEnvelope(session.studentSubmission)) return session;
 
+    const submission = session.studentSubmission;
     const source = findGeneratedForGradedEvent(generated, session.eventId);
-    if (!source?.readingQuestions?.length) return session;
+    const storedQuestions = submission.readingQuestions;
+    const questions = source?.readingQuestions?.length
+      ? source.readingQuestions
+      : storedQuestions?.length
+        ? getReadingQuestionsForGrading(storedQuestions, {
+            examPrompt: submission.examPrompt ?? source?.examPrompt,
+            studentAnswers: submission.answers,
+          })
+        : undefined;
 
-    const updatedSubmission = recomputeReadingSubmission(
-      session.studentSubmission,
-      source.readingQuestions,
-    );
+    if (!questions?.length) return session;
+
+    const updatedSubmission = recomputeReadingSubmission(submission, questions);
+    if (storedQuestions?.length) {
+      updatedSubmission.readingQuestions = questions;
+      if (submission.examPrompt) {
+        updatedSubmission.examPrompt = submission.examPrompt;
+      }
+    }
 
     const scoreChanged =
       updatedSubmission.gradeMetadata?.score.correct !==
-        session.studentSubmission.gradeMetadata?.score.correct ||
+        submission.gradeMetadata?.score.correct ||
       updatedSubmission.gradeMetadata?.estimatedBand !==
-        session.studentSubmission.gradeMetadata?.estimatedBand;
+        submission.gradeMetadata?.estimatedBand;
 
     if (!scoreChanged) return session;
 

@@ -128,6 +128,9 @@ export interface ReadingSubmissionEnvelope {
   answers: Record<string, number>;
   gradeMetadata?: ReadingGradeMetadata;
   questionTimings?: Record<string, number>;
+  /** Stored for mock attempts so scores can be recomputed after index repair. */
+  readingQuestions?: ReadingQuestion[];
+  examPrompt?: string;
 }
 
 export interface ConceptWritingResult {

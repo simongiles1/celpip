@@ -23,7 +23,10 @@ import {
   CELPIP_READING_PARTS,
   getReadingResults,
 } from "@/lib/reading-analytics";
-import { getReadingGradeMetadata } from "@/lib/reading-submission";
+import {
+  getReadingResultsForSession,
+  getReadingScoreForSession,
+} from "@/lib/reading-submission";
 import type { GradedSession } from "@/lib/types";
 
 function bandBadgeVariant(band: number) {
@@ -33,15 +36,26 @@ function bandBadgeVariant(band: number) {
 }
 
 function ReadingSegmentScores({ session }: { session: GradedSession }) {
-  const metadata = getReadingGradeMetadata(session.studentSubmission);
-  const readingResults = getReadingResults(session);
+  const readingResults = getReadingResultsForSession(session);
+  const score = getReadingScoreForSession(session);
+  const hasStoredQuestions =
+    typeof session.studentSubmission === "object" &&
+    session.studentSubmission !== null &&
+    "readingQuestions" in session.studentSubmission &&
+    Array.isArray(session.studentSubmission.readingQuestions) &&
+    session.studentSubmission.readingQuestions.length > 0;
 
   return (
     <div className="flex flex-col gap-3">
-      {metadata && (
-        <Badge variant="outline">
-          {metadata.score.correct}/{metadata.score.total} correct
-        </Badge>
+      <Badge variant="outline">
+        {score.correct}/{score.total} correct
+      </Badge>
+
+      {!hasStoredQuestions && (
+        <p className="text-xs text-amber-700">
+          This attempt was saved before mock answer-index repair. Scores may be
+          inaccurate. Retake the mock for a reliable score.
+        </p>
       )}
 
       {session.overallFeedback.trim() && (

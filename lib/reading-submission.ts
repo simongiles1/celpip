@@ -1,4 +1,5 @@
 import { getReadingPassageScore } from "@/lib/reading-passage-sets";
+import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import type {
   GradeResponse,
   ReadingGradeMetadata,
@@ -39,6 +40,77 @@ export function getReadingGradeMetadata(
     return submission.gradeMetadata ?? null;
   }
   return null;
+}
+
+export function getStoredReadingQuestions(
+  submission: string | Record<string, number> | ReadingSubmissionEnvelope,
+): ReadingQuestion[] {
+  if (!isReadingSubmissionEnvelope(submission)) return [];
+  return submission.readingQuestions ?? [];
+}
+
+export function getReadingResultsForSession(
+  session: {
+    focusSubTest: string;
+    studentSubmission:
+      | string
+      | Record<string, number>
+      | ReadingSubmissionEnvelope;
+  },
+): ReadingQuestionResult[] {
+  if (session.focusSubTest !== "Reading") return [];
+  if (!isReadingSubmissionEnvelope(session.studentSubmission)) return [];
+
+  const submission = session.studentSubmission;
+  const answers = submission.answers;
+  const storedQuestions = submission.readingQuestions;
+
+  if (storedQuestions?.length) {
+    const questions = getReadingQuestionsForGrading(storedQuestions, {
+      examPrompt: submission.examPrompt,
+      studentAnswers: answers,
+    });
+    return buildReadingResults(
+      answers,
+      questions,
+      submission.gradeMetadata?.readingResults,
+      submission.questionTimings,
+    );
+  }
+
+  return submission.gradeMetadata?.readingResults ?? [];
+}
+
+export function getReadingScoreForSession(session: {
+  focusSubTest: string;
+  studentSubmission:
+    | string
+    | Record<string, number>
+    | ReadingSubmissionEnvelope;
+}): { correct: number; total: number } {
+  if (session.focusSubTest !== "Reading") return { correct: 0, total: 0 };
+  if (!isReadingSubmissionEnvelope(session.studentSubmission)) {
+    return { correct: 0, total: 0 };
+  }
+
+  const submission = session.studentSubmission;
+  const answers = submission.answers;
+  const storedQuestions = submission.readingQuestions;
+
+  if (storedQuestions?.length) {
+    const questions = getReadingQuestionsForGrading(storedQuestions, {
+      examPrompt: submission.examPrompt,
+      studentAnswers: answers,
+    });
+    return getReadingPassageScore(answers, questions);
+  }
+
+  return (
+    submission.gradeMetadata?.score ?? {
+      correct: 0,
+      total: submission.gradeMetadata?.readingResults?.length ?? 0,
+    }
+  );
 }
 
 export function buildReadingResults(
