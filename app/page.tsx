@@ -10,6 +10,7 @@ import {
   type CalendarView,
 } from "@/components/calendar/StudyCalendar";
 import { SessionModal } from "@/components/session/SessionModal";
+import { VocabularyModal } from "@/components/session/VocabularyModal";
 import { Badge } from "@/components/ui/badge";
 import { getCurriculumUnit } from "@/data/curriculum";
 import { useStudyStore } from "@/hooks/useStudyStore";
@@ -25,6 +26,7 @@ const MOCK_PRACTICE_TYPES: Record<string, string> = {
 const LEGEND = [
   { label: "Writing", color: "#3b82f6" },
   { label: "Reading", color: "#22c55e" },
+  { label: "Vocabulary", color: "#14b8a6" },
   { label: "Review", color: "#f59e0b" },
   { label: "Exam", color: "#dc2626" },
 ] as const;
@@ -139,6 +141,7 @@ export default function HomePage() {
       </div>
 
       <StudyCalendar view={view} onEventClick={handleEventClick} />
+      <VocabularyModal />
       <SessionModal />
     </div>
   );

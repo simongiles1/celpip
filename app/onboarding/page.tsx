@@ -49,8 +49,9 @@ export default function OnboardingPage() {
             Set your official CELPIP exam date. We&apos;ll backfill a daily
             study plan from today with two 45-minute{" "}
             <span className="font-medium">themed practice</span> sessions per
-            day — writing at 9:00 and reading at 10:00. These follow your
-            skill schedule, not full official test replicas.
+            day — writing at 9:00 and reading at 10:00 — plus a 30-minute
+            vocabulary session at 11:00. These follow your skill schedule, not
+            full official test replicas.
           </CardDescription>
         </CardHeader>
         <CardContent>

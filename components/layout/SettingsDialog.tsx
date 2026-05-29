@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GeminiCostPopover } from "@/components/session/GeminiCostPopover";
 import { useStudyStore } from "@/hooks/useStudyStore";
 import { combineGeminiUsage } from "@/lib/gemini-session-usage";
@@ -39,6 +40,12 @@ export function SettingsDialog() {
   const setPreferredReadingClbBand = useStudyStore(
     (s) => s.setPreferredReadingClbBand,
   );
+  const dailyVocabularyWordCount = useStudyStore(
+    (s) => s.dailyVocabularyWordCount,
+  );
+  const setDailyVocabularyWordCount = useStudyStore(
+    (s) => s.setDailyVocabularyWordCount,
+  );
   const rebuildSchedule = useStudyStore((s) => s.rebuildSchedule);
   const resetStudyProgram = useStudyStore((s) => s.resetStudyProgram);
   const settings = useStudyStore((s) => s.settings);
@@ -61,7 +68,7 @@ export function SettingsDialog() {
 
   const handleRebuildSchedule = async () => {
     const confirmed = window.confirm(
-      "Rebuild the study calendar from your saved exam date? Each day gets a 45-minute themed writing session at 9:00 and a 45-minute themed reading session at 10:00. Completed session statuses are kept where the same unit falls on the same day.",
+      "Rebuild the study calendar from your saved exam date? Each day gets a 45-minute themed writing session at 9:00, a 45-minute themed reading session at 10:00, and a 30-minute vocabulary session at 11:00. Completed session statuses are kept where the same unit falls on the same day.",
     );
     if (!confirmed) return;
 
@@ -119,133 +126,182 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         <DialogContent>
-          <section className="space-y-3">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900">AI model</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Used for generating practice content and grading submissions.
-              </p>
-            </div>
-            <div className="space-y-2">
-              {GEMINI_MODELS.map((model) => {
-                const pricing = GEMINI_PRICING_PER_MILLION[model];
-                return (
-                  <label
-                    key={model}
-                    className={cn(
-                      "flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition-colors",
-                      geminiModel === model
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300",
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="gemini-model"
-                      value={model}
-                      checked={geminiModel === model}
-                      onChange={() => handleModelChange(model)}
-                      className="mt-1"
-                    />
-                    <span>
-                      <span className="block text-sm font-medium text-gray-900">
-                        {GEMINI_MODEL_LABELS[model]}
-                      </span>
-                      <span className="block text-xs text-gray-500">
-                        {model} · {formatUsd(pricing.input)}/
-                        {formatUsd(pricing.output)} per 1M tokens (in/out)
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </section>
+          <Tabs defaultValue="ai" className="w-full">
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-1">
+              <TabsTrigger value="ai" className="text-xs sm:text-sm">
+                AI
+              </TabsTrigger>
+              <TabsTrigger value="practice" className="text-xs sm:text-sm">
+                Practice
+              </TabsTrigger>
+              <TabsTrigger value="program" className="text-xs sm:text-sm">
+                Program
+              </TabsTrigger>
+            </TabsList>
 
-          <section className="space-y-3 border-t border-gray-100 pt-4">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900">
-                Themed reading difficulty
-              </h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Default CLB band (6-12) used when generating new themed reading
-                passages. Can also be adjusted per-session from the slider in a
-                reading session.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-semibold">
-                CLB {preferredReadingClbBand}
-              </span>
-              <input
-                type="range"
-                min={6}
-                max={12}
-                step={1}
-                value={preferredReadingClbBand}
-                onChange={(e) =>
-                  setPreferredReadingClbBand(Number(e.target.value))
-                }
-                aria-label="Default themed reading CLB band"
-                className="h-2 w-48 cursor-pointer accent-blue-600"
-              />
-              <span className="text-xs text-gray-500">
-                {preferredReadingClbBand <= 7
-                  ? "Foundational — simpler vocab, direct questions"
-                  : preferredReadingClbBand <= 9
-                    ? "Standard — exam-level register"
-                    : "Advanced — academic vocab, fine inference"}
-              </span>
-            </div>
-          </section>
-
-          {settings && (
-            <section className="space-y-3 border-t border-gray-100 pt-4">
+            <TabsContent value="ai" className="space-y-3">
               <div>
-                <h3 className="text-sm font-medium text-gray-900">
-                  Study calendar
-                </h3>
+                <h3 className="text-sm font-medium text-gray-900">AI model</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Rebuild events from your exam date: writing at 9:00 and
-                  reading at 10:00 each day.
+                  Used for generating practice content and grading submissions.
                 </p>
               </div>
-              {rebuildError && (
-                <p className="text-sm text-red-600">{rebuildError}</p>
-              )}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleRebuildSchedule()}
-                disabled={rebuilding}
-              >
-                {rebuilding ? "Rebuilding..." : "Rebuild schedule"}
-              </Button>
-            </section>
-          )}
+              <div className="space-y-2">
+                {GEMINI_MODELS.map((model) => {
+                  const pricing = GEMINI_PRICING_PER_MILLION[model];
+                  return (
+                    <label
+                      key={model}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition-colors",
+                        geminiModel === model
+                          ? "border-blue-600 bg-blue-50"
+                          : "border-gray-200 hover:border-gray-300",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="gemini-model"
+                        value={model}
+                        checked={geminiModel === model}
+                        onChange={() => handleModelChange(model)}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-gray-900">
+                          {GEMINI_MODEL_LABELS[model]}
+                        </span>
+                        <span className="block text-xs text-gray-500">
+                          {model} · {formatUsd(pricing.input)}/
+                          {formatUsd(pricing.output)} per 1M tokens (in/out)
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </TabsContent>
 
-          <section className="space-y-3 border-t border-gray-100 pt-4">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900">
-                Study program
-              </h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Start over with a new exam date. Required if visiting onboarding
-                while an old program is still saved in the database.
-              </p>
-            </div>
-            {resetError && (
-              <p className="text-sm text-red-600">{resetError}</p>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void handleResetProgram()}
-              disabled={resetting}
-            >
-              {resetting ? "Resetting..." : "Reset study program"}
-            </Button>
-          </section>
+            <TabsContent value="practice" className="space-y-6">
+              <section className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">
+                    Themed reading difficulty
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Default CLB band (6-12) used when generating new themed
+                    reading passages. Can also be adjusted per-session from the
+                    slider in a reading session.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-semibold">
+                    CLB {preferredReadingClbBand}
+                  </span>
+                  <input
+                    type="range"
+                    min={6}
+                    max={12}
+                    step={1}
+                    value={preferredReadingClbBand}
+                    onChange={(e) =>
+                      setPreferredReadingClbBand(Number(e.target.value))
+                    }
+                    aria-label="Default themed reading CLB band"
+                    className="h-2 w-48 cursor-pointer accent-blue-600"
+                  />
+                  <span className="text-xs text-gray-500">
+                    {preferredReadingClbBand <= 7
+                      ? "Foundational — simpler vocab, direct questions"
+                      : preferredReadingClbBand <= 9
+                        ? "Standard — exam-level register"
+                        : "Advanced — academic vocab, fine inference"}
+                  </span>
+                </div>
+              </section>
+
+              <section className="space-y-3 border-t border-gray-100 pt-4">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">
+                    Daily vocabulary
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Number of CLB 9 writing words generated for each vocabulary
+                    calendar session. Helps bridge spoken fluency to formal
+                    written expression.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-md border border-gray-300 px-2 py-0.5 text-xs font-semibold">
+                    {dailyVocabularyWordCount} words
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={dailyVocabularyWordCount}
+                    onChange={(e) =>
+                      setDailyVocabularyWordCount(Number(e.target.value))
+                    }
+                    aria-label="Daily vocabulary word count"
+                    className="h-2 w-48 cursor-pointer accent-teal-600"
+                  />
+                </div>
+              </section>
+            </TabsContent>
+
+            <TabsContent value="program" className="space-y-6">
+              {settings && (
+                <section className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">
+                      Study calendar
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Rebuild events from your exam date: writing at 9:00,
+                      reading at 10:00, and vocabulary at 11:00 each day.
+                    </p>
+                  </div>
+                  {rebuildError && (
+                    <p className="text-sm text-red-600">{rebuildError}</p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleRebuildSchedule()}
+                    disabled={rebuilding}
+                  >
+                    {rebuilding ? "Rebuilding..." : "Rebuild schedule"}
+                  </Button>
+                </section>
+              )}
+
+              <section className="space-y-3 border-t border-gray-100 pt-4">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">
+                    Study program
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Start over with a new exam date. Required if visiting
+                    onboarding while an old program is still saved in the
+                    database.
+                  </p>
+                </div>
+                {resetError && (
+                  <p className="text-sm text-red-600">{resetError}</p>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleResetProgram()}
+                  disabled={resetting}
+                >
+                  {resetting ? "Resetting..." : "Reset study program"}
+                </Button>
+              </section>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </>

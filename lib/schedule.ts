@@ -1,4 +1,4 @@
-import { EXAM_UNIT, STUDY_UNITS } from "@/data/curriculum";
+import { EXAM_UNIT, STUDY_UNITS, VOCABULARY_UNIT_ID } from "@/data/curriculum";
 import { CONCEPT_UNIT_PREFIX } from "@/lib/concept-units";
 import {
   getLastConceptPracticeDate,
@@ -17,10 +17,12 @@ import {
 } from "date-fns";
 
 const DEFAULT_DURATION_MIN = 45;
+const VOCABULARY_DURATION_MIN = 30;
 const SESSION_TIMES = [
   { hour: 9, minute: 0 },
   { hour: 10, minute: 0 },
 ];
+const VOCABULARY_TIME = { hour: 11, minute: 0 };
 
 export const CONCEPT_DURATION_MIN = 25;
 const MIN_DAYS_BETWEEN_INJECTIONS = 3;
@@ -81,7 +83,7 @@ function pickFromPool(
   return pool[Math.min(index, pool.length - 1)].id;
 }
 
-/** Two sessions per day: writing at 9am, reading at 10am. */
+/** Three sessions per day: writing at 9am, reading at 10am, vocabulary at 11am. */
 function distributeUnits(dayCount: number): string[] {
   if (dayCount <= 0) return [];
 
@@ -136,6 +138,18 @@ export function generateSchedule(
         status: "scheduled",
       });
     });
+
+    const vocabStart = withTime(day, VOCABULARY_TIME.hour, VOCABULARY_TIME.minute);
+    const vocabEnd = new Date(
+      vocabStart.getTime() + VOCABULARY_DURATION_MIN * 60 * 1000,
+    );
+    events.push({
+      id: `evt-${formatDateISO(day)}-vocab-${VOCABULARY_UNIT_ID}`,
+      curriculumUnitId: VOCABULARY_UNIT_ID,
+      start: vocabStart.toISOString(),
+      end: vocabEnd.toISOString(),
+      status: "scheduled",
+    });
   });
 
   events.push({
@@ -153,6 +167,56 @@ export function generateSchedule(
   };
 
   return { events, settings };
+}
+
+/** Add daily vocabulary events for study days that lack them (e.g. after a schedule upgrade). */
+export function ensureVocabularyEvents(
+  events: StudyEvent[],
+  settings: AppSettings,
+): { events: StudyEvent[]; changed: boolean } {
+  const examDate = startOfDay(parseISO(settings.examDate));
+  const programStart = startOfDay(parseISO(settings.programStartDate));
+
+  const vocabDates = new Set(
+    events
+      .filter((e) => e.curriculumUnitId === VOCABULARY_UNIT_ID)
+      .map((e) => formatDateISO(parseISO(e.start))),
+  );
+
+  const additions: StudyEvent[] = [];
+  let cursor = programStart;
+  while (cursor < examDate) {
+    const dateKey = formatDateISO(cursor);
+    if (!vocabDates.has(dateKey)) {
+      const vocabStart = withTime(
+        cursor,
+        VOCABULARY_TIME.hour,
+        VOCABULARY_TIME.minute,
+      );
+      const vocabEnd = new Date(
+        vocabStart.getTime() + VOCABULARY_DURATION_MIN * 60 * 1000,
+      );
+      additions.push({
+        id: `evt-${dateKey}-vocab-${VOCABULARY_UNIT_ID}`,
+        curriculumUnitId: VOCABULARY_UNIT_ID,
+        start: vocabStart.toISOString(),
+        end: vocabEnd.toISOString(),
+        status: "scheduled",
+      });
+    }
+    cursor = addDays(cursor, 1);
+  }
+
+  if (additions.length === 0) {
+    return { events, changed: false };
+  }
+
+  return {
+    events: [...events, ...additions].sort(
+      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+    ),
+    changed: true,
+  };
 }
 
 /** Rebuild the calendar from saved program dates (e.g. after schedule logic changes). */

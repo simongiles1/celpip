@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { DEFAULT_GEMINI_MODEL, isGeminiModel } from "./gemini";
 import { emptySkillProfile } from "./skill-profile";
 import { migrateReadingAnswerIndices } from "./repair-reading-answer-indices";
+import { ensureVocabularyEvents } from "./schedule";
 import type {
   AppSettings,
   ConceptCustomization,
@@ -125,6 +126,8 @@ function initSchema(database: Database.Database): void {
   migrateReadingClbColumns(database);
   migrateMockColumns(database);
   migratePreferredReadingClbColumn(database);
+  migrateDailyVocabularyWordCountColumn(database);
+  migrateVocabularyWordsColumn(database);
 }
 
 function migrateReadingClbColumns(database: Database.Database): void {
@@ -166,6 +169,28 @@ function migratePreferredReadingClbColumn(database: Database.Database): void {
   if (!cols.some((c) => c.name === "preferred_reading_clb_band")) {
     database.exec(
       `ALTER TABLE user_preferences ADD COLUMN preferred_reading_clb_band INTEGER`,
+    );
+  }
+}
+
+function migrateDailyVocabularyWordCountColumn(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(user_preferences)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "daily_vocabulary_word_count")) {
+    database.exec(
+      `ALTER TABLE user_preferences ADD COLUMN daily_vocabulary_word_count INTEGER`,
+    );
+  }
+}
+
+function migrateVocabularyWordsColumn(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(generated_content)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "vocabulary_words")) {
+    database.exec(
+      `ALTER TABLE generated_content ADD COLUMN vocabulary_words TEXT`,
     );
   }
 }
@@ -291,21 +316,31 @@ function clampClbBand(value: number | null | undefined): number | undefined {
   return Math.max(6, Math.min(12, Math.round(value)));
 }
 
+function clampVocabularyWordCount(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 5;
+  return Math.max(1, Math.min(20, Math.round(value)));
+}
+
 export function loadPreferences(): UserPreferences {
   const row = getDb()
     .prepare(
-      `SELECT gemini_model, preferred_reading_clb_band
+      `SELECT gemini_model, preferred_reading_clb_band, daily_vocabulary_word_count
        FROM user_preferences WHERE id = 1`,
     )
     .get() as
     | {
         gemini_model: string;
         preferred_reading_clb_band: number | null;
+        daily_vocabulary_word_count: number | null;
       }
     | undefined;
 
   if (!row) {
-    return { geminiModel: DEFAULT_GEMINI_MODEL, preferredReadingClbBand: 9 };
+    return {
+      geminiModel: DEFAULT_GEMINI_MODEL,
+      preferredReadingClbBand: 9,
+      dailyVocabularyWordCount: 5,
+    };
   }
 
   return {
@@ -314,22 +349,29 @@ export function loadPreferences(): UserPreferences {
       : DEFAULT_GEMINI_MODEL,
     preferredReadingClbBand:
       clampClbBand(row.preferred_reading_clb_band) ?? 9,
+    dailyVocabularyWordCount: clampVocabularyWordCount(
+      row.daily_vocabulary_word_count,
+    ),
   };
 }
 
 export function savePreferences(preferences: UserPreferences): void {
   getDb()
     .prepare(
-      `INSERT INTO user_preferences (id, gemini_model, preferred_reading_clb_band)
-       VALUES (1, @geminiModel, @preferredReadingClbBand)
+      `INSERT INTO user_preferences (id, gemini_model, preferred_reading_clb_band, daily_vocabulary_word_count)
+       VALUES (1, @geminiModel, @preferredReadingClbBand, @dailyVocabularyWordCount)
        ON CONFLICT(id) DO UPDATE SET
          gemini_model = excluded.gemini_model,
-         preferred_reading_clb_band = excluded.preferred_reading_clb_band`,
+         preferred_reading_clb_band = excluded.preferred_reading_clb_band,
+         daily_vocabulary_word_count = excluded.daily_vocabulary_word_count`,
     )
     .run({
       geminiModel: preferences.geminiModel,
       preferredReadingClbBand:
         clampClbBand(preferences.preferredReadingClbBand) ?? null,
+      dailyVocabularyWordCount: clampVocabularyWordCount(
+        preferences.dailyVocabularyWordCount,
+      ),
     });
 }
 
@@ -359,6 +401,11 @@ export function loadEvents(): StudyEvent[] {
 }
 
 export function saveEvents(events: StudyEvent[]): void {
+  const settings = loadSettings();
+  const merged = settings
+    ? ensureVocabularyEvents(events, settings).events
+    : events;
+
   const database = getDb();
   const replaceAll = database.transaction((items: StudyEvent[]) => {
     database.prepare(`DELETE FROM study_events`).run();
@@ -377,14 +424,14 @@ export function saveEvents(events: StudyEvent[]): void {
       });
     }
   });
-  replaceAll(events);
+  replaceAll(merged);
 }
 
 export function loadGenerated(): GeneratedContent[] {
   const rows = getDb()
     .prepare(
       `SELECT event_id, instructions, example, exam_prompt, reading_questions,
-              reading_answers, concept_drill_items, concept_id, generated_at, gemini_usage,
+              reading_answers, concept_drill_items, vocabulary_words, concept_id, generated_at, gemini_usage,
               passage_celpip_part, passage_target_clb_band
        FROM generated_content ORDER BY generated_at`,
     )
@@ -396,6 +443,7 @@ export function loadGenerated(): GeneratedContent[] {
     reading_questions: string | null;
     reading_answers: string | null;
     concept_drill_items: string | null;
+    vocabulary_words: string | null;
     concept_id: string | null;
     generated_at: string;
     gemini_usage: string | null;
@@ -414,6 +462,7 @@ export function loadGenerated(): GeneratedContent[] {
       undefined,
     ),
     conceptDrillItems: parseJson(row.concept_drill_items, undefined),
+    vocabularyWords: parseJson(row.vocabulary_words, undefined),
     ...(row.concept_id ? { conceptId: row.concept_id } : {}),
     generatedAt: row.generated_at,
     geminiUsage: parseJson(row.gemini_usage, undefined),
@@ -436,11 +485,11 @@ export function saveGenerated(items: GeneratedContent[]): void {
     const insert = database.prepare(
       `INSERT INTO generated_content (
          event_id, instructions, example, exam_prompt, reading_questions,
-         reading_answers, concept_drill_items, concept_id, generated_at, gemini_usage,
+         reading_answers, concept_drill_items, vocabulary_words, concept_id, generated_at, gemini_usage,
          passage_celpip_part, passage_target_clb_band
        ) VALUES (
          @eventId, @instructions, @example, @examPrompt, @readingQuestions,
-         @readingAnswers, @conceptDrillItems, @conceptId, @generatedAt, @geminiUsage,
+         @readingAnswers, @conceptDrillItems, @vocabularyWords, @conceptId, @generatedAt, @geminiUsage,
          @passageCelpipPart, @passageTargetClbBand
        )`,
     );
@@ -458,6 +507,9 @@ export function saveGenerated(items: GeneratedContent[]): void {
           : null,
         conceptDrillItems: item.conceptDrillItems
           ? JSON.stringify(item.conceptDrillItems)
+          : null,
+        vocabularyWords: item.vocabularyWords
+          ? JSON.stringify(item.vocabularyWords)
           : null,
         conceptId: item.conceptId ?? null,
         generatedAt: item.generatedAt,
@@ -685,8 +737,18 @@ export function loadAllData(): AppData {
     saveGraded(migrated.graded);
   }
 
+  let events = raw.events;
+  if (raw.settings) {
+    const vocabResult = ensureVocabularyEvents(events, raw.settings);
+    if (vocabResult.changed) {
+      events = vocabResult.events;
+      saveEvents(events);
+    }
+  }
+
   return {
     ...raw,
+    events,
     generated: migrated.generated,
     graded: migrated.graded,
   };

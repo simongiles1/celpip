@@ -419,12 +419,28 @@ export const CURRICULUM: CurriculumUnit[] = [
 export const STUDY_UNITS = CURRICULUM.filter((u) => u.focusSubTest !== "EXAM");
 export const EXAM_UNIT = CURRICULUM.find((u) => u.focusSubTest === "EXAM")!;
 
+/** Fixed curriculum id for daily vocabulary calendar sessions. */
+export const VOCABULARY_UNIT_ID = "vocab-daily";
+
+export const VOCABULARY_UNIT: CurriculumUnit = {
+  id: VOCABULARY_UNIT_ID,
+  week: 1,
+  dayLabel: "Daily",
+  focusSubTest: "Vocabulary",
+  focusTarget: "Writing Vocabulary — CLB 9",
+  practiceType: "Daily Word Study",
+  sessionGoal: "Build formal writing vocabulary",
+  strategy:
+    "Learn words you can use in CELPIP email and survey tasks — especially formal alternatives to everyday spoken English",
+};
+
 export function getCurriculumUnit(
   id: string,
   profile?: UserSkillProfile,
 ): CurriculumUnit | undefined {
   const staticUnit = CURRICULUM.find((u) => u.id === id);
   if (staticUnit) return staticUnit;
+  if (id === VOCABULARY_UNIT_ID) return VOCABULARY_UNIT;
   if (profile) return resolveCurriculumUnit(id, profile);
   return resolveCurriculumUnit(id, { observations: [], conceptScores: [], discoveredConcepts: [] });
 }
@@ -435,6 +451,8 @@ export function getSubTestColor(subTest: string): string {
       return "#3b82f6";
     case "Reading":
       return "#22c55e";
+    case "Vocabulary":
+      return "#14b8a6";
     case "Mixed":
       return "#a855f7";
     case "Review":

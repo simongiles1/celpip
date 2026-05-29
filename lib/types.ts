@@ -4,11 +4,24 @@ import type { GeminiCostBreakdown } from "./gemini-usage";
 export type FocusSubTest =
   | "Writing"
   | "Reading"
+  | "Vocabulary"
   | "Mixed"
   | "Review"
   | "Full Mock"
   | "Concept"
   | "EXAM";
+
+export interface VocabularyWord {
+  word: string;
+  partOfSpeech: string;
+  definition: string;
+  /** Example sentence suitable for CELPIP email or survey writing. */
+  exampleSentence: string;
+  /** Brief note on using this word in formal writing. */
+  writingTip: string;
+  /** Informal or spoken alternative the learner might overuse in writing. */
+  spokenAlternative?: string;
+}
 
 export type ConceptCategory =
   | "grammar"
@@ -183,6 +196,7 @@ export interface GeneratedContent {
   /** Saved in-progress answers before a passage is submitted for grading. */
   readingAnswers?: Record<string, number>;
   conceptDrillItems?: ConceptDrillItem[];
+  vocabularyWords?: VocabularyWord[];
   conceptId?: string;
   setNumber?: number;
   generatedAt: string;
@@ -228,6 +242,8 @@ export interface UserPreferences {
   geminiModel: GeminiModel;
   /** Default CLB band (6-12) used when generating themed reading passages. */
   preferredReadingClbBand?: number;
+  /** Words per daily vocabulary calendar session (default 5). */
+  dailyVocabularyWordCount?: number;
 }
 
 export type SessionMode = "subtest" | "concept" | "review";

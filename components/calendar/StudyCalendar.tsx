@@ -57,7 +57,9 @@ export function StudyCalendar({ onEventClick, view }: StudyCalendarProps) {
       events.map((evt) => {
         const unit = getCurriculumUnit(evt.curriculumUnitId, skillProfile);
         const title = unit
-          ? `${unit.focusSubTest}: ${unit.practiceType}`
+          ? unit.focusSubTest === "Vocabulary"
+            ? `Vocabulary: ${unit.practiceType}`
+            : `${unit.focusSubTest}: ${unit.practiceType}`
           : "Study Session";
         const color = getSubTestColor(unit?.focusSubTest ?? "");
         return {

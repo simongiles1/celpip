@@ -495,6 +495,7 @@ export function SessionModal() {
   );
 
   const isConceptSession = unit?.focusSubTest === "Concept";
+  const isVocabularySession = unit?.focusSubTest === "Vocabulary";
   const concept =
     isConceptSession && event?.conceptId
       ? getConceptById(skillProfile, event.conceptId)
@@ -515,7 +516,7 @@ export function SessionModal() {
     onUsage: setChatUsage,
   });
 
-  const open = Boolean(selectedEventId && event && unit);
+  const open = Boolean(selectedEventId && event && unit && !isVocabularySession);
   const exerciseKind = unit ? getExerciseKindForUnit(unit) : null;
 
   useEffect(() => {

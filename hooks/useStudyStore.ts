@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { getCurriculumUnit } from "@/data/curriculum";
 import {
+  ensureVocabularyEvents,
   generateSchedule,
   injectConceptSessions,
   nextManualConceptSlot,
@@ -32,6 +33,7 @@ import type {
   GradedSession,
   GradeResponse,
   StudyEvent,
+  UserPreferences,
   UserSkillProfile,
 } from "@/lib/types";
 import { upsertConceptCustomization } from "@/lib/concept-customizations";
@@ -43,6 +45,7 @@ interface StudyStore {
   settings: AppSettings | null;
   geminiModel: GeminiModel;
   preferredReadingClbBand: number;
+  dailyVocabularyWordCount: number;
   events: StudyEvent[];
   generated: GeneratedContent[];
   graded: GradedSession[];
@@ -57,6 +60,7 @@ interface StudyStore {
   resetStudyProgram: () => Promise<void>;
   setGeminiModel: (model: GeminiModel) => void;
   setPreferredReadingClbBand: (band: number) => void;
+  setDailyVocabularyWordCount: (count: number) => void;
   setSelectedEventId: (id: string | null) => void;
   setSelectedConceptId: (id: string | null) => void;
   updateEvent: (event: StudyEvent) => void;
@@ -95,11 +99,37 @@ function clampClbBand(value: number | null | undefined): number {
   return Math.max(6, Math.min(12, Math.round(value)));
 }
 
+function clampVocabularyWordCount(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 5;
+  return Math.max(1, Math.min(20, Math.round(value)));
+}
+
+function persistEventsWithVocab(
+  events: StudyEvent[],
+  settings: AppSettings | null,
+): StudyEvent[] {
+  const merged = settings
+    ? ensureVocabularyEvents(events, settings).events
+    : events;
+  persistEvents(merged);
+  return merged;
+}
+
+function currentPreferences(get: () => StudyStore): UserPreferences {
+  const state = get();
+  return {
+    geminiModel: state.geminiModel,
+    preferredReadingClbBand: state.preferredReadingClbBand,
+    dailyVocabularyWordCount: state.dailyVocabularyWordCount,
+  };
+}
+
 export const useStudyStore = create<StudyStore>((set, get) => ({
   hydrated: false,
   settings: null,
   geminiModel: DEFAULT_GEMINI_MODEL,
   preferredReadingClbBand: 9,
+  dailyVocabularyWordCount: 5,
   events: [],
   generated: [],
   graded: [],
@@ -120,6 +150,16 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
         graded: migrated.graded,
       });
     }
+
+    let events = data.events;
+    if (data.settings) {
+      const vocabResult = ensureVocabularyEvents(events, data.settings);
+      if (vocabResult.changed) {
+        events = vocabResult.events;
+        await saveAllData({ events });
+      }
+    }
+
     set({
       hydrated: true,
       settings: data.settings,
@@ -127,7 +167,10 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       preferredReadingClbBand: clampClbBand(
         data.preferences.preferredReadingClbBand,
       ),
-      events: data.events,
+      dailyVocabularyWordCount: clampVocabularyWordCount(
+        data.preferences.dailyVocabularyWordCount,
+      ),
+      events,
       generated: migrated.generated,
       graded: migrated.graded,
       skillProfile: data.skillProfile,
@@ -178,20 +221,26 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   },
 
   setGeminiModel: (model) => {
-    persistPreferences({
-      geminiModel: model,
-      preferredReadingClbBand: get().preferredReadingClbBand,
-    });
+    persistPreferences({ ...currentPreferences(get), geminiModel: model });
     set({ geminiModel: model });
   },
 
   setPreferredReadingClbBand: (band) => {
     const clamped = clampClbBand(band);
     persistPreferences({
-      geminiModel: get().geminiModel,
+      ...currentPreferences(get),
       preferredReadingClbBand: clamped,
     });
     set({ preferredReadingClbBand: clamped });
+  },
+
+  setDailyVocabularyWordCount: (count) => {
+    const clamped = clampVocabularyWordCount(count);
+    persistPreferences({
+      ...currentPreferences(get),
+      dailyVocabularyWordCount: clamped,
+    });
+    set({ dailyVocabularyWordCount: clamped });
   },
 
   initializeProgram: async (examDate: string) => {
@@ -237,14 +286,15 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   setSelectedConceptId: (id) => set({ selectedConceptId: id }),
 
   updateEvent: (event) => {
-    const events = get().events.map((e) => (e.id === event.id ? event : e));
-    persistEvents(events);
-    set({ events });
+    const { settings, events } = get();
+    const next = events.map((e) => (e.id === event.id ? event : e));
+    const merged = persistEventsWithVocab(next, settings);
+    set({ events: merged });
   },
 
   updateEvents: (events) => {
-    persistEvents(events);
-    set({ events });
+    const merged = persistEventsWithVocab(events, get().settings);
+    set({ events: merged });
   },
 
   addGenerated: (content) => {
@@ -312,11 +362,12 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     get().graded.find((g) => g.eventId === eventId),
 
   markEventCompleted: (eventId) => {
-    const events = get().events.map((e) =>
+    const { settings, events } = get();
+    const next = events.map((e) =>
       e.id === eventId ? { ...e, status: "completed" as const } : e,
     );
-    persistEvents(events);
-    set({ events });
+    const merged = persistEventsWithVocab(next, settings);
+    set({ events: merged });
   },
 
   scheduleConceptDrill: (conceptId: string) => {
@@ -344,20 +395,20 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     const updated = [...withoutDuplicate, event].sort(
       (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
     );
-    persistEvents(updated);
-    set({ events: updated, selectedEventId: event.id });
+    const merged = persistEventsWithVocab(updated, get().settings);
+    set({ events: merged, selectedEventId: event.id });
     return { start, end };
   },
 
   reconcileConceptInjections: () => {
-    const { events, skillProfile } = get();
+    const { events, skillProfile, settings } = get();
     const updated = injectConceptSessions(events, skillProfile);
     if (
       updated.length !== events.length ||
       updated.some((e, i) => e.id !== events[i]?.id)
     ) {
-      persistEvents(updated);
-      set({ events: updated });
+      const merged = persistEventsWithVocab(updated, settings);
+      set({ events: merged });
     }
   },
 
