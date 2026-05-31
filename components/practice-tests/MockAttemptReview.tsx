@@ -23,10 +23,16 @@ import {
   CELPIP_READING_PARTS,
   getReadingResults,
 } from "@/lib/reading-analytics";
+import { CopyForVerificationButton } from "@/components/session/CopyForVerificationButton";
+import { formatReadingVerificationCopy, formatWritingVerificationCopy } from "@/lib/copy-for-verification";
 import {
+  getReadingAnswers,
   getReadingResultsForSession,
   getReadingScoreForSession,
+  getStoredReadingQuestions,
+  isReadingSubmissionEnvelope,
 } from "@/lib/reading-submission";
+import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import type { GradedSession } from "@/lib/types";
 
 function bandBadgeVariant(band: number) {
@@ -38,18 +44,41 @@ function bandBadgeVariant(band: number) {
 function ReadingSegmentScores({ session }: { session: GradedSession }) {
   const readingResults = getReadingResultsForSession(session);
   const score = getReadingScoreForSession(session);
-  const hasStoredQuestions =
-    typeof session.studentSubmission === "object" &&
-    session.studentSubmission !== null &&
-    "readingQuestions" in session.studentSubmission &&
-    Array.isArray(session.studentSubmission.readingQuestions) &&
-    session.studentSubmission.readingQuestions.length > 0;
+  const submission = isReadingSubmissionEnvelope(session.studentSubmission)
+    ? session.studentSubmission
+    : null;
+  const hasStoredQuestions = Boolean(submission?.readingQuestions?.length);
+  const answers = getReadingAnswers(session.studentSubmission);
+  const storedQuestions = getStoredReadingQuestions(session.studentSubmission);
+  const questions = hasStoredQuestions
+    ? getReadingQuestionsForGrading(storedQuestions, {
+        examPrompt: submission?.examPrompt,
+        studentAnswers: answers,
+      })
+    : [];
 
   return (
     <div className="flex flex-col gap-3">
-      <Badge variant="outline">
-        {score.correct}/{score.total} correct
-      </Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">
+          {score.correct}/{score.total} correct
+        </Badge>
+        {hasStoredQuestions && submission && (
+          <CopyForVerificationButton
+            getText={() =>
+              formatReadingVerificationCopy({
+                testLabel: "CELPIP mock — reading segment",
+                examPrompt: submission.examPrompt ?? "",
+                questions,
+                answers,
+                readingResults,
+                estimatedBand: session.estimatedBand,
+                score,
+              })
+            }
+          />
+        )}
+      </div>
 
       {!hasStoredQuestions && (
         <p className="text-xs text-amber-700">
@@ -112,6 +141,22 @@ function WritingSegmentScores({ session }: { session: GradedSession }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">CLB {session.estimatedBand}</Badge>
+        {session.examPrompt?.trim() && (
+          <CopyForVerificationButton
+            getText={() =>
+              formatWritingVerificationCopy({
+                testLabel: "CELPIP mock — writing segment",
+                examPrompt: session.examPrompt ?? "",
+                studentResponse: writingText,
+                grade: session,
+              })
+            }
+          />
+        )}
+      </div>
+
       {session.overallFeedback.trim() && (
         <div className="rounded-lg border border-gray-200 px-3 py-2">
           <h4 className="text-xs font-semibold text-gray-700">

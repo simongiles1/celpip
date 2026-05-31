@@ -23,6 +23,11 @@ import {
   READING_PART_LABEL,
   type MockSpec,
 } from "@/lib/celpip-mocks";
+import { CopyForVerificationButton } from "@/components/session/CopyForVerificationButton";
+import {
+  formatReadingVerificationCopy,
+  formatWritingVerificationCopy,
+} from "@/lib/copy-for-verification";
 import { buildReadingSubmissionEnvelope } from "@/lib/reading-submission";
 import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import type {
@@ -312,6 +317,7 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
               geminiUsage: grade.geminiUsage,
               isMock: true,
               mockSpecId: spec.id,
+              examPrompt: state.examPrompt,
             },
             grade,
             "subtest",
@@ -367,6 +373,7 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
               geminiUsage: grade.geminiUsage,
               isMock: true,
               mockSpecId: spec.id,
+              examPrompt: state.examPrompt,
             },
             grade,
             "subtest",
@@ -774,6 +781,14 @@ function SegmentGradedView({
   state: SegmentState;
   grade: GradeResponse;
 }) {
+  const readingQuestions =
+    segment.kind === "reading_part"
+      ? getReadingQuestionsForGrading(state.readingQuestions ?? [], {
+          examPrompt: state.examPrompt,
+          studentAnswers: state.answers,
+        })
+      : [];
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -783,6 +798,37 @@ function SegmentGradedView({
             {grade.readingResults.filter((r) => r.isCorrect).length}/
             {grade.readingResults.length} correct
           </Badge>
+        )}
+        {segment.kind === "reading_part" && grade.readingResults && (
+          <CopyForVerificationButton
+            getText={() =>
+              formatReadingVerificationCopy({
+                testLabel: `CELPIP mock — ${segment.label}`,
+                examPrompt: state.examPrompt ?? "",
+                questions: readingQuestions,
+                answers: state.answers,
+                readingResults: grade.readingResults,
+                estimatedBand: grade.estimatedBand,
+                score: {
+                  correct: grade.readingResults!.filter((r) => r.isCorrect)
+                    .length,
+                  total: grade.readingResults!.length,
+                },
+              })
+            }
+          />
+        )}
+        {segment.kind === "writing_task" && (
+          <CopyForVerificationButton
+            getText={() =>
+              formatWritingVerificationCopy({
+                testLabel: `CELPIP mock — ${segment.label}`,
+                examPrompt: state.examPrompt ?? "",
+                studentResponse: state.writingText,
+                grade,
+              })
+            }
+          />
         )}
       </div>
       {grade.overallFeedback.trim() && (

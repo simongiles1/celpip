@@ -24,7 +24,10 @@ import {
   getReadingGradeMetadata,
 } from "@/lib/reading-submission";
 import { getStrongConcepts, getWeakConcepts } from "@/lib/skill-profile";
-import { getReadingQuestionsForDisplay } from "@/lib/repair-reading-answer-indices";
+import {
+  getReadingQuestionsForDisplay,
+  READING_ANSWER_INDEX_REPAIR_VERSION,
+} from "@/lib/repair-reading-answer-indices";
 import type {
   CurriculumUnit,
   GenerateResponse,
@@ -303,6 +306,7 @@ export function ReadingSessionContent({
           example: isFirst ? data.example : "",
           examPrompt: data.examPrompt,
           readingQuestions: data.readingQuestions,
+          readingAnswerIndexRepairVersion: READING_ANSWER_INDEX_REPAIR_VERSION,
           setNumber,
           generatedAt: new Date().toISOString(),
           geminiUsage: data.geminiUsage,

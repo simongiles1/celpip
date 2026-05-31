@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { format } from "date-fns";
+import { MessageCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConceptCreateChatPanel } from "@/components/concepts/ConceptCreateChatPanel";
 import { ConceptSessionModal } from "@/components/session/ConceptSessionModal";
+import { useConceptCreateChat } from "@/hooks/useConceptCreateChat";
 import { useStudyStore } from "@/hooks/useStudyStore";
 import {
   getAllConcepts,
@@ -22,6 +24,7 @@ import {
   type AccuracyBucket,
 } from "@/lib/reading-analytics";
 import type { CelpipReadingPart } from "@/lib/types";
+import { format } from "date-fns";
 
 function MasteryBar({ mastery }: { mastery: number }) {
   const color =
@@ -84,6 +87,28 @@ export default function ConceptsPage() {
   const scheduleConceptDrill = useStudyStore((s) => s.scheduleConceptDrill);
   const [activeConceptId, setActiveConceptId] = useState<string | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
+
+  const {
+    chatOpen,
+    setChatOpen,
+    sending: createChatSending,
+    chatError: createChatError,
+    messages: createChatMessages,
+    sendMessage: sendCreateChatMessage,
+    resetChat: resetCreateChat,
+  } = useConceptCreateChat({
+    onConceptCreated: (_conceptId, label) => {
+      setChatOpen(false);
+      setScheduleNotice(`"${label}" added to Concept Lab.`);
+    },
+  });
+
+  useEffect(() => {
+    const practice = new URLSearchParams(window.location.search).get("practice");
+    if (practice) {
+      setActiveConceptId(practice);
+    }
+  }, []);
 
   const weak = getWeakConcepts(skillProfile, 8);
   const strong = getStrongConcepts(skillProfile, 5);
@@ -277,11 +302,28 @@ export default function ConceptsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Concepts</CardTitle>
-          <p className="text-sm text-gray-500">
-            {allConcepts.length} concepts ({skillProfile.discoveredConcepts.length}{" "}
-            discovered from your sessions)
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle>All Concepts</CardTitle>
+              <p className="text-sm text-gray-500">
+                {allConcepts.length} concepts ({skillProfile.discoveredConcepts.length}{" "}
+                discovered from your sessions)
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                resetCreateChat();
+                setChatOpen(true);
+              }}
+              aria-label="Add a concept with AI assistant"
+              className="shrink-0 text-gray-600"
+            >
+              <MessageCircle className="h-4 w-4" />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {allConcepts.map((concept) => {
@@ -316,7 +358,19 @@ export default function ConceptsPage() {
             );
           })}
         </CardContent>
+        {createChatError && (
+          <p className="px-6 pb-4 text-sm text-red-600">{createChatError}</p>
+        )}
       </Card>
+
+      <ConceptCreateChatPanel
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        messages={createChatMessages}
+        onSend={sendCreateChatMessage}
+        sending={createChatSending}
+        onReset={resetCreateChat}
+      />
 
       <ConceptSessionModal
         conceptId={activeConceptId}

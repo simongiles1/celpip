@@ -16,6 +16,11 @@ import {
   getThemedReadingPassagePaceLabel,
 } from "@/lib/exam-timing";
 import { getThemedReadingStartCopy } from "@/lib/exercise-types";
+import { CopyForVerificationButton } from "@/components/session/CopyForVerificationButton";
+import {
+  formatReadingPracticeCopy,
+  formatReadingVerificationCopy,
+} from "@/lib/copy-for-verification";
 import { getReadingPassageScore } from "@/lib/reading-passage-sets";
 import type { GradeResponse, ReadingQuestion } from "@/lib/types";
 
@@ -184,20 +189,25 @@ function GradedQuestionExplanation({
 }: {
   result: NonNullable<GradeResponse["readingResults"]>[number];
 }) {
-  if (result.isCorrect) {
-    if (!result.feedback.trim() || result.feedback === "Correct.") return null;
-    return (
-      <p className="mt-2 text-xs text-gray-600">{result.feedback}</p>
-    );
+  const feedback = result.feedback.trim();
+  const pollutedFeedback =
+    /^incorrect\b/i.test(feedback) ||
+    /\bthe correct answer is\s+['"]?(yes|no)['"]?/i.test(feedback);
+
+  if (result.isCorrect && !pollutedFeedback) {
+    if (!feedback || feedback === "Correct.") return null;
+    return <p className="mt-2 text-xs text-gray-600">{feedback}</p>;
   }
+
+  const explanation = feedback.replace(/^incorrect\.?\s*/i, "").trim();
 
   return (
     <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-gray-700">
       <p className="font-medium text-green-700">
         Correct answer: {result.correctAnswer}
       </p>
-      {result.feedback.trim() && (
-        <p className="mt-1">{result.feedback}</p>
+      {explanation && explanation !== result.correctAnswer && (
+        <p className="mt-1">{explanation}</p>
       )}
     </div>
   );
@@ -524,6 +534,19 @@ export function ReadingPractice({
                         </span>
                       </>
                     )}
+                    <CopyForVerificationButton
+                      getText={() =>
+                        formatReadingVerificationCopy({
+                          testLabel: `${practiceType} — ${focusTarget}`,
+                          examPrompt,
+                          questions,
+                          answers,
+                          readingResults: gradeResult.readingResults,
+                          estimatedBand: gradeResult.estimatedBand,
+                          score: passageScore,
+                        })
+                      }
+                    />
                   </div>
                 )}
 
@@ -618,23 +641,37 @@ export function ReadingPractice({
                   </div>
                 </div>
 
-                {!isGraded && (
-                  <Button
-                    onClick={onSubmit}
-                    disabled={
-                      readOnly ||
-                      submitting ||
-                      !allAnswered ||
-                      currentPassageSubmitted
-                    }
-                    className="w-full shrink-0 sm:w-auto"
-                  >
-                    {submitting
-                      ? "Grading..."
-                      : currentPassageSubmitted
-                        ? "Passage submitted"
-                        : "Submit passage"}
-                  </Button>
+                {!isGraded && passageStarted && (
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {/* TESTING ONLY: remove when grading validation is stable */}
+                    <CopyForVerificationButton
+                      label="Copy passage & questions (test)"
+                      ariaLabel="Copy passage and questions for external AI"
+                      getText={() =>
+                        formatReadingPracticeCopy({
+                          testLabel: `${practiceType} — ${focusTarget}`,
+                          examPrompt,
+                          questions,
+                        })
+                      }
+                    />
+                    <Button
+                      onClick={onSubmit}
+                      disabled={
+                        readOnly ||
+                        submitting ||
+                        !allAnswered ||
+                        currentPassageSubmitted
+                      }
+                      className="w-full sm:w-auto"
+                    >
+                      {submitting
+                        ? "Grading..."
+                        : currentPassageSubmitted
+                          ? "Passage submitted"
+                          : "Submit passage"}
+                    </Button>
+                  </div>
                 )}
               </>
             )}

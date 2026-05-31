@@ -129,6 +129,18 @@ function initSchema(database: Database.Database): void {
   migrateDailyVocabularyWordCountColumn(database);
   migrateVocabularyWordsColumn(database);
   migrateVocabularyProgressColumn(database);
+  migrateFeedbackTicketStatusColumn(database);
+}
+
+function migrateFeedbackTicketStatusColumn(database: Database.Database): void {
+  const cols = database
+    .prepare(`PRAGMA table_info(feedback_tickets)`)
+    .all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "status")) {
+    database.exec(
+      `ALTER TABLE feedback_tickets ADD COLUMN status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed'))`,
+    );
+  }
 }
 
 function migrateReadingClbColumns(database: Database.Database): void {
@@ -671,13 +683,14 @@ export function saveConceptCustomizations(
 export function loadFeedbackTickets(): FeedbackTicket[] {
   const rows = getDb()
     .prepare(
-      `SELECT id, type, title, description, screenshot_data_url,
+      `SELECT id, type, status, title, description, screenshot_data_url,
               screenshot_data_urls, created_at
        FROM feedback_tickets ORDER BY created_at DESC`,
     )
     .all() as Array<{
     id: string;
     type: FeedbackTicket["type"];
+    status: FeedbackTicket["status"] | null;
     title: string;
     description: string;
     screenshot_data_url: string | null;
@@ -688,6 +701,7 @@ export function loadFeedbackTickets(): FeedbackTicket[] {
   return rows.map((row) => ({
     id: row.id,
     type: row.type,
+    status: row.status ?? "open",
     title: row.title,
     description: row.description,
     screenshotDataUrls: parseFeedbackScreenshots(
@@ -699,14 +713,16 @@ export function loadFeedbackTickets(): FeedbackTicket[] {
 }
 
 export function insertFeedbackTicket(
-  ticket: Omit<FeedbackTicket, "id" | "createdAt"> & {
+  ticket: Omit<FeedbackTicket, "id" | "createdAt" | "status"> & {
     id?: string;
     createdAt?: string;
+    status?: FeedbackTicket["status"];
   },
 ): FeedbackTicket {
   const record: FeedbackTicket = {
     id: ticket.id ?? `feedback-${Date.now()}`,
     type: ticket.type,
+    status: ticket.status ?? "open",
     title: ticket.title,
     description: ticket.description,
     screenshotDataUrls: ticket.screenshotDataUrls,
@@ -716,16 +732,17 @@ export function insertFeedbackTicket(
   getDb()
     .prepare(
       `INSERT INTO feedback_tickets (
-         id, type, title, description, screenshot_data_url, screenshot_data_urls,
+         id, type, status, title, description, screenshot_data_url, screenshot_data_urls,
          created_at
        ) VALUES (
-         @id, @type, @title, @description, @legacyScreenshot, @screenshotDataUrls,
+         @id, @type, @status, @title, @description, @legacyScreenshot, @screenshotDataUrls,
          @createdAt
        )`,
     )
     .run({
       id: record.id,
       type: record.type,
+      status: record.status,
       title: record.title,
       description: record.description,
       legacyScreenshot: record.screenshotDataUrls[0] ?? null,
@@ -734,6 +751,29 @@ export function insertFeedbackTicket(
     });
 
   return record;
+}
+
+export function updateFeedbackTicketStatus(
+  id: string,
+  status: FeedbackTicket["status"],
+): FeedbackTicket | null {
+  const existing = getDb()
+    .prepare(`SELECT id FROM feedback_tickets WHERE id = @id`)
+    .get({ id }) as { id: string } | undefined;
+  if (!existing) return null;
+
+  getDb()
+    .prepare(`UPDATE feedback_tickets SET status = @status WHERE id = @id`)
+    .run({ id, status });
+
+  return loadFeedbackTickets().find((ticket) => ticket.id === id) ?? null;
+}
+
+export function deleteFeedbackTicket(id: string): boolean {
+  const result = getDb()
+    .prepare(`DELETE FROM feedback_tickets WHERE id = @id`)
+    .run({ id });
+  return result.changes > 0;
 }
 
 export function loadAllData(): AppData {

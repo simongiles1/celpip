@@ -21,9 +21,10 @@ export function getReadingQuestionsForDisplay(
   ) {
     return content.readingQuestions;
   }
+  // Never pass student answers here — that caused false-positive "legacy repair"
+  // when a student picked the option immediately after the stored key.
   return getReadingQuestionsForGrading(content.readingQuestions, {
     examPrompt: content.examPrompt,
-    studentAnswers,
   });
 }
 
@@ -138,22 +139,8 @@ function inferPassageOptionIndex(
 /** Detect batches corrupted by the old 0-based → 1-based subtraction bug. */
 export function detectLegacyReadingIndexCorruption(
   questions: ReadingQuestion[],
-  studentAnswers?: Record<string, number>,
 ): boolean {
   if (questions.length === 0) return false;
-
-  if (studentAnswers) {
-    let offByOneSignals = 0;
-    for (let i = 0; i < questions.length; i++) {
-      const stored = questions[i].correctAnswerIndex;
-      const student = studentAnswers[String(i)];
-      if (student == null) continue;
-      if (student !== stored && student === stored + 1 && student <= 3) {
-        offByOneSignals++;
-      }
-    }
-    if (offByOneSignals >= 1) return true;
-  }
 
   const indices = questions.map((q) => q.correctAnswerIndex);
   const zeroCount = indices.filter((index) => index === 0).length;
@@ -169,28 +156,23 @@ export function repairLegacyReadingAnswerIndices(
     studentAnswers?: Record<string, number>;
   },
 ): ReadingQuestion[] {
-  if (!detectLegacyReadingIndexCorruption(questions, options?.studentAnswers)) {
+  if (!detectLegacyReadingIndexCorruption(questions)) {
     return questions;
   }
 
-  return questions.map((question, index) => {
+  return questions.map((question) => {
     let repaired = question.correctAnswerIndex;
 
     if (repaired >= 1) {
       repaired = Math.min(3, repaired + 1);
     }
 
-    if (repaired === 0) {
-      const student = options?.studentAnswers?.[String(index)];
-      if (student === 1) {
-        repaired = 1;
-      } else if (options?.examPrompt) {
-        const inferred =
-          inferSectionAnswerIndex(question, options.examPrompt) ??
-          inferPassageOptionIndex(question, options.examPrompt);
-        if (inferred != null) {
-          repaired = inferred;
-        }
+    if (repaired === 0 && options?.examPrompt) {
+      const inferred =
+        inferSectionAnswerIndex(question, options.examPrompt) ??
+        inferPassageOptionIndex(question, options.examPrompt);
+      if (inferred != null) {
+        repaired = inferred;
       }
     }
 
@@ -251,18 +233,8 @@ export function migrateReadingAnswerIndices(data: {
       continue;
     }
 
-    const graded = data.graded.find(
-      (session) =>
-        session.eventId === eventId && session.focusSubTest === "Reading",
-    );
-    const studentAnswers =
-      graded && typeof graded.studentSubmission === "object"
-        ? getReadingAnswers(graded.studentSubmission)
-        : item.readingAnswers;
-
     const repaired = repairLegacyReadingAnswerIndices(item.readingQuestions, {
       examPrompt: item.examPrompt,
-      studentAnswers,
     });
 
     const questionsChanged = repaired.some(
@@ -301,7 +273,6 @@ export function migrateReadingAnswerIndices(data: {
       : storedQuestions?.length
         ? getReadingQuestionsForGrading(storedQuestions, {
             examPrompt: submission.examPrompt ?? source?.examPrompt,
-            studentAnswers: submission.answers,
           })
         : undefined;
 

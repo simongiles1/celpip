@@ -1,4 +1,8 @@
 import { getReadingPassageScore } from "@/lib/reading-passage-sets";
+import {
+  pickAiFeedbackForQuestion,
+  resolveReadingQuestionFeedback,
+} from "@/lib/reading-feedback-alignment";
 import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import type {
   GradeResponse,
@@ -119,12 +123,12 @@ export function buildReadingResults(
   aiResults?: ReadingQuestionResult[],
   questionTimings?: Record<string, number>,
 ): ReadingQuestionResult[] {
-  const aiByIndex = new Map(aiResults?.map((result) => [result.index, result]));
+  const questionCount = questions.length;
 
   return questions.map((question, index) => {
     const studentIndex = answers[String(index)];
     const isCorrect = studentIndex === question.correctAnswerIndex;
-    const aiResult = aiByIndex.get(index);
+    const aiResult = pickAiFeedbackForQuestion(aiResults, index, questionCount);
     const timeSpentSeconds = questionTimings?.[String(index)];
 
     return {
@@ -135,11 +139,12 @@ export function buildReadingResults(
           ? question.options[studentIndex]
           : "(no answer selected)",
       correctAnswer: question.options[question.correctAnswerIndex],
-      feedback:
-        aiResult?.feedback ??
-        (isCorrect
-          ? "Correct."
-          : `The correct answer is "${question.options[question.correctAnswerIndex]}".`),
+      feedback: resolveReadingQuestionFeedback(
+        aiResult?.feedback,
+        isCorrect,
+        question,
+        studentIndex,
+      ),
       celpipPart: aiResult?.celpipPart ?? question.celpipPart,
       questionType: aiResult?.questionType ?? question.questionType,
       targetClbBand: aiResult?.targetClbBand ?? question.targetClbBand,

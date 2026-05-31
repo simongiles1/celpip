@@ -1,3 +1,4 @@
+import { normalizeExamPromptMarkdown } from "@/lib/normalize-exam-prompt-markdown";
 import type { CelpipReadingPart, ReadingQuestionType } from "@/lib/types";
 
 const CELPIP_PARTS = new Set<CelpipReadingPart>([
@@ -17,7 +18,7 @@ const QUESTION_TYPES = new Set<ReadingQuestionType>([
   "tone_attitude",
 ]);
 
-function coerceClbBand(value: unknown): number | undefined {
+export function coerceClbBand(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(6, Math.min(12, Math.round(value)));
   }
@@ -67,7 +68,7 @@ function coerceAnswerIndex(
   return undefined;
 }
 
-function normalizeCelpipPart(value: unknown): CelpipReadingPart | undefined {
+export function normalizeCelpipPart(value: unknown): CelpipReadingPart | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value
     .trim()
@@ -82,7 +83,9 @@ function normalizeCelpipPart(value: unknown): CelpipReadingPart | undefined {
   return undefined;
 }
 
-function normalizeQuestionType(value: unknown): ReadingQuestionType | undefined {
+export function normalizeQuestionType(
+  value: unknown,
+): ReadingQuestionType | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value
     .trim()
@@ -150,7 +153,7 @@ export function normalizeGeneratedReadingPayload(parsed: unknown): unknown {
   const next: Record<string, unknown> = { ...root };
 
   if (typeof next.examPrompt === "string") {
-    next.examPrompt = next.examPrompt.trim();
+    next.examPrompt = normalizeExamPromptMarkdown(next.examPrompt);
   }
 
   const passageCelpipPart = normalizeCelpipPart(next.passageCelpipPart);

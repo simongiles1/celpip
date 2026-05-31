@@ -10,9 +10,16 @@ interface DialogProps {
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
   panelClassName?: string;
+  size?: "full" | "auto";
 }
 
-export function Dialog({ open, onOpenChange, children, panelClassName }: DialogProps) {
+export function Dialog({
+  open,
+  onOpenChange,
+  children,
+  panelClassName,
+  size = "full",
+}: DialogProps) {
   React.useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
@@ -34,7 +41,8 @@ export function Dialog({ open, onOpenChange, children, panelClassName }: DialogP
       />
       <div
         className={cn(
-          "relative z-50 flex h-[95vh] max-h-[95vh] w-full flex-col overflow-hidden rounded-t-xl bg-white shadow-xl sm:rounded-xl",
+          "relative z-50 flex w-full flex-col overflow-hidden rounded-t-xl bg-white shadow-xl sm:rounded-xl",
+          size === "auto" ? "h-auto max-h-[95vh]" : "h-[95vh] max-h-[95vh]",
           panelClassName ?? "max-w-5xl",
         )}
       >
@@ -89,12 +97,20 @@ export function DialogTitle({
 export function DialogContent({
   className,
   children,
+  compact = false,
 }: {
   className?: string;
   children: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4 pb-6", className)}>
+    <div
+      className={cn(
+        "flex flex-col px-6 py-4 pb-6",
+        compact ? "overflow-visible" : "min-h-0 flex-1 overflow-hidden",
+        className,
+      )}
+    >
       {children}
     </div>
   );

@@ -104,6 +104,25 @@ function readingTaggingBlock(): string {
     .join("; ")}.`;
 }
 
+const GRAMMAR_CORRECTIONS_GUIDANCE = `
+For each grammarCorrections entry, write "reason" as 2-3 short sentences for an English learner (about 40-70 words — a little more detail than a one-line rule, but not a long lesson):
+- Sentence 1: Name the specific mistake in the student's original phrase (wrong preposition, missing subject, adjective used where a noun is needed, etc.).
+- Sentence 2: Explain the rule or pattern in plain language — say WHY the correction works, not only that it is "correct" or "more natural."
+- If the fix changes more than one word, add one brief sentence on how the corrected phrase fits together as a whole sentence.
+- "original" must be an exact verbatim substring copied from the student submission so it can be highlighted inline.
+- Include "conceptId" on every entry — use the same seed conceptId as the matching weakness skillTag (e.g. comma splice → punctuation_mechanics).
+
+Avoid terse fragments joined by semicolons (e.g. "'X' is correct. 'Y' is wrong. 'Z' is natural."). Write flowing, complete sentences the student can learn from.
+Include up to 8 grammarCorrections for substantive errors; skip minor typos unless they affect meaning.`;
+
+const SKILL_TAGGING_GUIDANCE = `
+SKILL TAGGING (required — powers Concept Lab practice links):
+- Include one skillTag for each distinct weakness in constructiveCriticism (minimum 1, maximum 8 weakness tags). Add up to 3 strength tags for clear positives.
+- Prefer these seed conceptIds when the weakness matches: verb tenses / tense errors → verb_tenses; comma splices / run-ons / missing commas → punctuation_mechanics; sentence structure / complex sentences / repetitive structure → sentence_variety; preposition errors → preposition_in_at_on; articles → articles_a_an_the; idiomatic or awkward phrases / unnatural collocations → collocations; formal tone / register → formal_tone_register; paragraph organization → paragraph_structure; connectors / transitions → connectors_transitions; vocabulary precision → vocabulary_precision; subject-verb agreement → subject_verb_agreement; infinitive "to" errors → infinitive_to_usage.
+- Use polarity "weakness" for areas to improve and "strength" for positives.
+- Each weakness tag's "evidence" must quote or closely paraphrase a specific phrase from the student submission.
+- Only use "new:slug" when no seed concept fits; always include "label" and "description" for new concepts so drills can be generated.`;
+
 const SKILL_TAGS_SCHEMA = `
   "skillTags": [
     {
@@ -414,6 +433,80 @@ Return ONLY valid JSON:
 Omit "updates" entirely or use an empty object if no changes are needed.`;
 }
 
+export function buildConceptCreateChatPrompt(input: {
+  existingConcepts: Array<{ label: string; category: string; description: string }>;
+  chatHistory: Array<{ role: "user" | "assistant"; content: string }>;
+  userMessage: string;
+}): string {
+  const conceptsBlock =
+    input.existingConcepts.length > 0
+      ? input.existingConcepts
+          .map(
+            (c, i) =>
+              `${i + 1}. ${c.label} (${c.category}) — ${c.description}`,
+          )
+          .join("\n")
+      : "(No concepts yet.)";
+
+  const historyBlock =
+    input.chatHistory.length > 0
+      ? input.chatHistory
+          .map((m) => `${m.role === "user" ? "Student" : "Assistant"}: ${m.content}`)
+          .join("\n\n")
+      : "(No prior messages.)";
+
+  return `You are an expert CELPIP English instructor helping a student add a new micro-skill concept to their Concept Lab.
+
+Concept Lab concepts are narrow, drillable skills — e.g. "When to use 'to' (and when not to)", "Articles (a, an, the)", "Scanning for dates in Part 2 diagrams". They are NOT broad topics like "grammar" or "reading".
+
+EXISTING CONCEPTS (do not duplicate these — suggest practicing an existing one if the student's idea overlaps):
+${conceptsBlock}
+
+Valid categories: grammar, vocabulary, reading_strategy, writing_structure
+
+Your job:
+1. Understand what micro-skill the student wants to practice.
+2. Ask 1-2 focused clarifying questions if the idea is vague, too broad, or overlaps an existing concept.
+3. When you have enough detail, set readyToCreate to true and fill in the concept object.
+
+Rules:
+- Be concise and conversational in "reply".
+- Only set readyToCreate to true when you are confident about label, category, and description.
+- label: short human-readable title (3-8 words).
+- description: 1-2 sentences explaining what the student will practice.
+- examples: optional array of 1-3 short example sentences or patterns.
+- aliases: optional array of phrases graders might use to tag this weakness.
+- id: optional snake_case slug; omit it and we will derive one from the label.
+- If the student's idea matches an existing concept, say so and do NOT create a duplicate.
+
+CHAT HISTORY:
+${historyBlock}
+
+NEW STUDENT MESSAGE:
+${input.userMessage}
+
+Return ONLY valid JSON:
+{
+  "reply": "Your conversational response",
+  "readyToCreate": false,
+  "concept": null
+}
+
+When ready to create, set readyToCreate to true and provide concept:
+{
+  "reply": "Brief confirmation of what you are adding",
+  "readyToCreate": true,
+  "concept": {
+    "label": "string",
+    "category": "grammar|vocabulary|reading_strategy|writing_structure",
+    "description": "string",
+    "examples": ["optional"],
+    "aliases": ["optional"],
+    "id": "optional_snake_case"
+  }
+}`;
+}
+
 export function buildGradingPrompt(
   focusSubTest: string,
   examPrompt: string,
@@ -428,17 +521,19 @@ Known concept IDs for skillTags: ${SEED_CONCEPT_IDS}
 Use a seed conceptId when the issue matches. Use "new:slug" only for patterns not covered by seed IDs.
 
 Evaluate across: Task Fulfillment, Organization/Coherence, Vocabulary, and Sentence Variety/Grammar.
+${GRAMMAR_CORRECTIONS_GUIDANCE}
+${SKILL_TAGGING_GUIDANCE}
 Provide a clean JSON response:
 {
   "estimatedBand": 1-12,
   "overallFeedback": "string markdown",
   "positives": ["string"],
   "constructiveCriticism": ["string"],
-  "grammarCorrections": [{"original": "str", "corrected": "str", "reason": "str"}],
+  "grammarCorrections": [{"original": "str", "corrected": "str", "reason": "str", "conceptId": "seed concept id"}],
   ${SKILL_TAGS_SCHEMA}
 }
 
-Include 1-5 skillTags identifying specific grammar/vocabulary/strategy strengths and weaknesses observed.
+Every weakness in constructiveCriticism must have a matching weakness skillTag. Do not omit skillTags.
 Return ONLY valid JSON, no markdown fences.`;
 }
 
@@ -456,6 +551,7 @@ Mini writing prompt: ${examPrompt}
 Student responses: ${studentSubmission}
 
 Known concept IDs for skillTags: ${SEED_CONCEPT_IDS}
+${GRAMMAR_CORRECTIONS_GUIDANCE}
 
 Grade each drill exercise individually. Provide JSON:
 {
@@ -463,7 +559,7 @@ Grade each drill exercise individually. Provide JSON:
   "overallFeedback": "string markdown — brief summary only (2-3 sentences max)",
   "positives": ["string"],
   "constructiveCriticism": ["string"],
-  "grammarCorrections": [{"original": "str", "corrected": "str", "reason": "str"}],
+  "grammarCorrections": [{"original": "str", "corrected": "str", "reason": "str", "conceptId": "seed concept id"}],
   "drillResults": [
     {
       "index": 0,
@@ -517,7 +613,8 @@ Provide CELPIP-style feedback as JSON:
   ${SKILL_TAGS_SCHEMA}
 }
 
-Include exactly ${questionCount} readingResults entries in order (index 0 through ${questionCount - 1}).
+Include exactly ${questionCount} readingResults entries in the SAME ORDER as the questions (first entry = question 1, index must be 0; last entry index = ${questionCount - 1}). Use zero-based index only — never 1-based.
+Each feedback must refer only to that specific question and its four multiple-choice options (A–D). Never use Yes/No, True/False, or boolean correct-answer wording.
 For correct answers, give brief reinforcement. For incorrect answers, explain why the correct option is right and why the student's choice was wrong.
 Always populate "celpipPart", "questionType", and "targetClbBand" (6-12) for every result, even if the source question lacked them.
 Include skillTags for reading strategy strengths/weaknesses (e.g. distractor_analysis, inference_implied_meaning).

@@ -20,12 +20,16 @@ export function emptySkillProfile(): UserSkillProfile {
   };
 }
 
-function slugify(text: string): string {
+export function slugifyConceptId(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "")
     .slice(0, 48);
+}
+
+function slugify(text: string): string {
+  return slugifyConceptId(text);
 }
 
 function normalizeText(text: string): string {
@@ -34,6 +38,65 @@ function normalizeText(text: string): string {
 
 export function getAllConcepts(profile: UserSkillProfile): ConceptDefinition[] {
   return [...CONCEPT_SEED, ...profile.discoveredConcepts];
+}
+
+function findConceptByLabel(
+  profile: UserSkillProfile,
+  label: string,
+): ConceptDefinition | undefined {
+  const labelNorm = normalizeText(label);
+  return getAllConcepts(profile).find(
+    (c) => normalizeText(c.label) === labelNorm,
+  );
+}
+
+export function addDiscoveredConcept(
+  profile: UserSkillProfile,
+  input: Omit<ConceptDefinition, "source">,
+): { profile: UserSkillProfile; added: boolean; error?: string } {
+  if (profile.discoveredConcepts.length >= MAX_DISCOVERED) {
+    return {
+      profile,
+      added: false,
+      error: `You already have ${MAX_DISCOVERED} custom concepts. Remove one before adding another.`,
+    };
+  }
+
+  const id = input.id || slugifyConceptId(input.label);
+  if (!id) {
+    return { profile, added: false, error: "Concept label is too short." };
+  }
+
+  if (getSeedConcept(id) || getConceptById(profile, id)) {
+    return {
+      profile,
+      added: false,
+      error: "A concept with this id or name already exists.",
+    };
+  }
+
+  const byLabel = findConceptByLabel(profile, input.label);
+  if (byLabel) {
+    return {
+      profile,
+      added: false,
+      error: `"${byLabel.label}" already covers this topic.`,
+    };
+  }
+
+  const concept: ConceptDefinition = {
+    ...input,
+    id,
+    source: "discovered",
+  };
+
+  return {
+    profile: {
+      ...profile,
+      discoveredConcepts: [...profile.discoveredConcepts, concept],
+    },
+    added: true,
+  };
 }
 
 export function getConceptById(
@@ -171,7 +234,9 @@ function maybePromoteDiscoveredConcepts(
   }
 
   for (const [, { tag, count }] of tentativeCounts) {
-    if (count < DISCOVERY_THRESHOLD) continue;
+    const threshold =
+      tag.polarity === "weakness" ? 1 : DISCOVERY_THRESHOLD;
+    if (count < threshold) continue;
     if (discovered.length >= MAX_DISCOVERED) break;
 
     const { conceptId } = normalizeConceptId(tag, profile);
@@ -304,4 +369,70 @@ export function getObservationsForConcept(
     .filter((o) => o.conceptId === conceptId)
     .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime())
     .slice(0, limit);
+}
+
+export function getSkillTagsForEvent(
+  profile: UserSkillProfile,
+  eventId: string,
+): SkillTag[] {
+  return profile.observations
+    .filter((o) => o.eventId === eventId)
+    .map((o) => ({
+      conceptId: o.conceptId,
+      polarity: o.polarity,
+      evidence: o.evidence,
+    }));
+}
+
+export interface PracticeRecommendation {
+  conceptId: string;
+  label: string;
+  description: string;
+  evidence: string;
+}
+
+export function getPracticeRecommendations(
+  profile: UserSkillProfile,
+  params: { eventId?: string; skillTags?: SkillTag[] },
+): PracticeRecommendation[] {
+  const weaknessTags = (
+    params.skillTags?.length
+      ? params.skillTags
+      : params.eventId
+        ? getSkillTagsForEvent(profile, params.eventId)
+        : []
+  ).filter((tag) => tag.polarity === "weakness");
+
+  const byConcept = new Map<string, PracticeRecommendation>();
+
+  for (const tag of weaknessTags) {
+    const { conceptId } = normalizeConceptId(tag, profile);
+    const concept = getConceptById(profile, conceptId);
+    const label =
+      concept?.label ??
+      tag.label ??
+      conceptId.replace(/_/g, " ");
+    const description =
+      concept?.description ??
+      tag.description ??
+      "Targeted drills to practice this pattern.";
+    const evidence = tag.evidence.trim();
+
+    const existing = byConcept.get(conceptId);
+    if (existing) {
+      if (evidence && !existing.evidence.includes(evidence)) {
+        existing.evidence = `${existing.evidence} · ${evidence}`;
+      }
+      continue;
+    }
+
+    byConcept.set(conceptId, {
+      conceptId,
+      label,
+      description,
+      evidence,
+    });
+  }
+
+  return Array.from(byConcept.values());
 }

@@ -16,6 +16,7 @@ import {
 } from "@/components/session/ConceptChatPanel";
 import { ExerciseKindBadge } from "@/components/session/ExerciseKindBadge";
 import { GeminiCostPopover } from "@/components/session/GeminiCostPopover";
+import { ConceptSessionModal } from "@/components/session/ConceptSessionModal";
 import { GradingResults } from "@/components/session/GradingResults";
 import { ReadingSessionContent } from "@/components/session/ReadingSessionContent";
 import { WritingPractice } from "@/components/session/WritingPractice";
@@ -33,7 +34,7 @@ import {
 import { combineGeminiUsage } from "@/lib/gemini-session-usage";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import { getExerciseKindForUnit } from "@/lib/exercise-types";
-import { getConceptById, getStrongConcepts, getWeakConcepts } from "@/lib/skill-profile";
+import { getConceptById, getSkillTagsForEvent, getStrongConcepts, getWeakConcepts } from "@/lib/skill-profile";
 import type {
   ConceptDrillItem,
   CurriculumUnit,
@@ -55,6 +56,7 @@ function SessionModalContent({
   conceptDocument,
   generateOverrides,
   onDrillItemsChange,
+  onPracticeConcept,
 }: {
   event: StudyEvent;
   unit: CurriculumUnit;
@@ -62,6 +64,7 @@ function SessionModalContent({
   conceptDocument?: string;
   generateOverrides?: ConceptGenerateOverrides;
   onDrillItemsChange?: (items: ConceptDrillItem[]) => void;
+  onPracticeConcept?: (conceptId: string) => void;
 }) {
   const addGenerated = useStudyStore((s) => s.addGenerated);
   const getGeneratedForEvent = useStudyStore((s) => s.getGeneratedForEvent);
@@ -126,7 +129,7 @@ function SessionModalContent({
       positives: existingGrade.positives,
       constructiveCriticism: existingGrade.constructiveCriticism,
       grammarCorrections: existingGrade.grammarCorrections,
-      skillTags: [],
+      skillTags: getSkillTagsForEvent(skillProfile, event.id),
     };
   });
   const [generateUsage, setGenerateUsage] = useState<
@@ -277,6 +280,7 @@ function SessionModalContent({
         studentSubmission: submission,
         gradedAt: new Date().toISOString(),
         geminiUsage: result.geminiUsage,
+        examPrompt: content?.examPrompt,
       },
       result,
       track,
@@ -414,7 +418,21 @@ function SessionModalContent({
     <div className="flex min-h-0 flex-1 flex-col">
       {gradeResult && !isConcept ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <GradingResults result={gradeResult} />
+          <GradingResults
+            result={gradeResult}
+            eventId={event.id}
+            skillProfile={skillProfile}
+            onPracticeConcept={onPracticeConcept}
+            verificationCopy={
+              content
+                ? {
+                    testLabel: `${unit.practiceType} — ${unit.focusTarget}`,
+                    examPrompt: content.examPrompt,
+                    studentResponse: writingText,
+                  }
+                : undefined
+            }
+          />
         </div>
       ) : isConcept ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -493,6 +511,7 @@ export function SessionModal() {
   const [conceptDrillItems, setConceptDrillItems] = useState<ConceptDrillItem[]>(
     [],
   );
+  const [practiceConceptId, setPracticeConceptId] = useState<string | null>(null);
 
   const isConceptSession = unit?.focusSubTest === "Concept";
   const isVocabularySession = unit?.focusSubTest === "Vocabulary";
@@ -542,7 +561,8 @@ export function SessionModal() {
   }, []);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && setSelectedEventId(null)}>
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && setSelectedEventId(null)}>
       {event && unit && (
         <div className="relative flex min-h-0 flex-1 flex-col">
           <DialogHeader
@@ -589,6 +609,7 @@ export function SessionModal() {
               onDrillItemsChange={
                 isConceptSession ? handleDrillItemsChange : undefined
               }
+              onPracticeConcept={setPracticeConceptId}
             />
             {chatError && (
               <p className="mt-3 text-sm text-red-600">{chatError}</p>
@@ -607,6 +628,11 @@ export function SessionModal() {
           )}
         </div>
       )}
-    </Dialog>
+      </Dialog>
+      <ConceptSessionModal
+        conceptId={practiceConceptId}
+        onClose={() => setPracticeConceptId(null)}
+      />
+    </>
   );
 }

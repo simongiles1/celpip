@@ -245,6 +245,8 @@ export interface GrammarCorrection {
   original: string;
   corrected: string;
   reason: string;
+  /** Seed or discovered concept id for Concept Lab practice. */
+  conceptId?: string;
 }
 
 export interface GradedSession {
@@ -264,6 +266,8 @@ export interface GradedSession {
   geminiUsage?: GeminiCostBreakdown;
   isMock?: boolean;
   mockSpecId?: string;
+  /** Stored so mock/writing review can rebuild verification copy text. */
+  examPrompt?: string;
 }
 
 export interface AppSettings {
@@ -307,10 +311,12 @@ export interface GradeResponse {
 }
 
 export type FeedbackTicketType = "bug" | "feature";
+export type FeedbackTicketStatus = "open" | "closed";
 
 export interface FeedbackTicket {
   id: string;
   type: FeedbackTicketType;
+  status: FeedbackTicketStatus;
   title: string;
   description: string;
   screenshotDataUrls: string[];

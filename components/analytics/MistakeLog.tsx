@@ -127,7 +127,7 @@ export function MistakeLog() {
               <div key={group.conceptId} className="rounded-lg border border-purple-200 bg-purple-50/50 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <Link
-                    href="/concepts"
+                    href={`/concepts?practice=${encodeURIComponent(group.conceptId)}`}
                     className="font-medium text-purple-900 hover:underline"
                   >
                     {group.label}

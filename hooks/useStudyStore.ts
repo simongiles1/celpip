@@ -10,7 +10,7 @@ import {
   regenerateSchedule,
   shouldReconcileConceptInjections,
 } from "@/lib/schedule";
-import { applySkillTags } from "@/lib/skill-profile";
+import { applySkillTags, addDiscoveredConcept as mergeDiscoveredConcept } from "@/lib/skill-profile";
 import type { GeminiModel } from "@/lib/gemini";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/gemini";
 import {
@@ -29,6 +29,7 @@ import type {
   AppSettings,
   ConceptChatMessage,
   ConceptCustomization,
+  ConceptDefinition,
   GeneratedContent,
   GradedSession,
   GradeResponse,
@@ -97,6 +98,9 @@ interface StudyStore {
       >
     >,
   ) => void;
+  addDiscoveredConcept: (
+    input: Omit<ConceptDefinition, "source">,
+  ) => { conceptId?: string; error?: string };
 }
 
 function clampClbBand(value: number | null | undefined): number {
@@ -450,6 +454,19 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     });
     persistConceptCustomizations(next);
     set({ conceptCustomizations: next });
+  },
+
+  addDiscoveredConcept: (input) => {
+    const { skillProfile } = get();
+    const { profile, added, error } = mergeDiscoveredConcept(skillProfile, input);
+    if (!added) {
+      return { error };
+    }
+    const conceptId =
+      profile.discoveredConcepts[profile.discoveredConcepts.length - 1]?.id;
+    persistSkillProfile(profile);
+    set({ skillProfile: profile });
+    return { conceptId };
   },
 }));
 

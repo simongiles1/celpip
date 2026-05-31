@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
+import { normalizeGradingPayload } from "@/lib/normalize-grading-response";
 import {
   buildConceptGradingPrompt,
   buildGradingPrompt,
   buildReadingGradingPrompt,
 } from "@/lib/prompts";
+import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import { buildReadingResults } from "@/lib/reading-submission";
 import { NextResponse } from "next/server";
 
@@ -73,6 +75,7 @@ const responseSchema = z.object({
       original: z.string(),
       corrected: z.string(),
       reason: z.string(),
+      conceptId: z.string().optional(),
     }),
   ),
   skillTags: z.array(skillTagSchema).optional().default([]),
@@ -105,6 +108,21 @@ function parseJsonResponse(text: string): unknown {
   return JSON.parse(cleaned);
 }
 
+function formatZodIssues(error: z.ZodError): string {
+  return error.issues
+    .slice(0, 8)
+    .map((issue) => `${issue.path.join(".") || "response"}: ${issue.message}`)
+    .join("\n");
+}
+
+function prepareGradingPayload(parsed: unknown): unknown {
+  return normalizeGradingPayload(parsed);
+}
+
+function validateGradingPayload(parsed: unknown) {
+  return responseSchema.safeParse(prepareGradingPayload(parsed));
+}
+
 function computeReadingScore(
   answers: Record<string, number>,
   questions: z.infer<typeof readingQuestionSchema>[],
@@ -132,21 +150,27 @@ export async function POST(request: Request) {
     let prompt: string;
     let autoBand: number | undefined;
 
+    let readingQuestionsForGrade: z.infer<typeof readingQuestionSchema>[] | undefined;
+
     if (
       input.focusSubTest === "Reading" &&
       typeof input.studentSubmission === "object" &&
       input.readingQuestions?.length
     ) {
+      readingQuestionsForGrade = getReadingQuestionsForGrading(
+        input.readingQuestions,
+        { examPrompt: input.examPrompt },
+      );
       const score = computeReadingScore(
         input.studentSubmission,
-        input.readingQuestions,
+        readingQuestionsForGrade,
       );
       autoBand = score.band;
       prompt = buildReadingGradingPrompt(
         input.examPrompt,
         JSON.stringify(input.studentSubmission),
         score.summary,
-        input.readingQuestions.length,
+        readingQuestionsForGrade.length,
       );
     } else if (input.focusSubTest === "Concept" && input.conceptLabel) {
       const submission =
@@ -174,16 +198,25 @@ export async function POST(request: Request) {
     const { text, usage } = await callGeminiWithJsonRetry(
       prompt,
       input.model,
-      "Return strictly valid JSON only.",
+      "Return strictly valid JSON matching the schema. No prose, no markdown.",
       "grade",
       parseJsonResponse,
-      (parsed) => responseSchema.safeParse(parsed).success,
+      (parsed) => validateGradingPayload(parsed).success,
+      {
+        describeValidationFailure: (parsed) => {
+          const result = validateGradingPayload(parsed);
+          return result.success ? undefined : formatZodIssues(result.error);
+        },
+      },
     );
 
-    const parsed = parseJsonResponse(text);
-    const validated = responseSchema.safeParse(parsed);
+    const validated = validateGradingPayload(parseJsonResponse(text));
 
     if (!validated.success) {
+      console.error(
+        "[grade] Invalid grading response:",
+        formatZodIssues(validated.error),
+      );
       return NextResponse.json(
         { error: "Invalid grading response from AI model" },
         { status: 502 },
@@ -198,7 +231,7 @@ export async function POST(request: Request) {
     if (
       input.focusSubTest === "Reading" &&
       typeof input.studentSubmission === "object" &&
-      input.readingQuestions?.length
+      readingQuestionsForGrade?.length
     ) {
       const aiFeedback = result.readingResults?.map((item) => ({
         index: item.index,
@@ -212,7 +245,7 @@ export async function POST(request: Request) {
       }));
       result.readingResults = buildReadingResults(
         input.studentSubmission,
-        input.readingQuestions,
+        readingQuestionsForGrade,
         aiFeedback,
       );
     }

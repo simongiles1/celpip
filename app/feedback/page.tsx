@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Bug, ClipboardPaste, ImageIcon, Lightbulb, Plus, X } from "lucide-react";
+import { Bug, CheckCircle2, ClipboardPaste, ImageIcon, Lightbulb, Plus, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,11 @@ export default function FeedbackPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<FeedbackTicket | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null);
 
   const [type, setType] = useState<FeedbackTicketType>("bug");
   const [title, setTitle] = useState("");
@@ -155,6 +160,77 @@ export default function FeedbackPage() {
     }
   };
 
+  const handleCloseTicket = async (ticketId: string) => {
+    setClosingId(ticketId);
+    try {
+      const response = await fetch(`/api/feedback/${ticketId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "closed" }),
+      });
+
+      const data = (await response.json()) as {
+        ticket?: FeedbackTicket;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to close ticket");
+      }
+
+      if (data.ticket) {
+        setTickets((current) =>
+          current.map((ticket) =>
+            ticket.id === ticketId ? data.ticket! : ticket,
+          ),
+        );
+      }
+    } catch (err) {
+      setLoadError(
+        err instanceof Error ? err.message : "Failed to close ticket",
+      );
+    } finally {
+      setClosingId(null);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(`/api/feedback/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+
+      const data = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to delete ticket");
+      }
+
+      setTickets((current) =>
+        current.filter((ticket) => ticket.id !== deleteTarget.id),
+      );
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete ticket",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteDialogOpenChange = (open: boolean) => {
+    if (!open && !deleting) {
+      setDeleteTarget(null);
+      setDeleteError(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -216,7 +292,10 @@ export default function FeedbackPage() {
           </Card>
         ) : (
           filteredTickets.map((ticket) => (
-            <Card key={ticket.id}>
+            <Card
+              key={ticket.id}
+              className={cn(ticket.status === "closed" && "opacity-75")}
+            >
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-2">
@@ -239,11 +318,48 @@ export default function FeedbackPage() {
                           </>
                         )}
                       </Badge>
+                      {ticket.status === "closed" && (
+                        <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                          <CheckCircle2 className="mr-1 h-3 w-3" />
+                          Closed
+                        </Badge>
+                      )}
                       <span className="text-xs text-gray-500">
                         {format(new Date(ticket.createdAt), "MMM d, yyyy 'at' h:mm a")}
                       </span>
                     </div>
-                    <CardTitle className="text-base">{ticket.title}</CardTitle>
+                    <CardTitle
+                      className={cn(
+                        "text-base",
+                        ticket.status === "closed" && "text-gray-500 line-through",
+                      )}
+                    >
+                      {ticket.title}
+                    </CardTitle>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {ticket.status === "open" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleCloseTicket(ticket.id)}
+                        disabled={closingId === ticket.id}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        {closingId === ticket.id ? "Closing..." : "Mark closed"}
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-gray-500 hover:text-red-600"
+                      onClick={() => setDeleteTarget(ticket)}
+                      aria-label={`Delete ticket: ${ticket.title}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -432,6 +548,53 @@ export default function FeedbackPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={handleDeleteDialogOpenChange}
+        size="auto"
+        panelClassName="max-w-md"
+      >
+        <DialogHeader onClose={() => handleDeleteDialogOpenChange(false)}>
+          <DialogTitle>Delete ticket?</DialogTitle>
+        </DialogHeader>
+        <DialogContent compact>
+          <div className="space-y-4">
+            {deleteError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {deleteError}
+              </div>
+            )}
+            <p className="text-sm text-gray-600">
+              This will permanently delete{" "}
+              <span className="font-medium text-gray-900">
+                {deleteTarget?.title}
+              </span>
+              . This action cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => handleDeleteDialogOpenChange(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                onClick={() => void handleDeleteConfirm()}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete ticket"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

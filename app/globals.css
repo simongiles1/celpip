@@ -71,6 +71,20 @@ body {
   font-weight: 600;
 }
 
+.prose pre {
+  font-family: inherit;
+  font-size: inherit;
+  white-space: pre-wrap;
+}
+
+.prose :not(pre) > code {
+  font-family: inherit;
+  font-size: 0.875em;
+  background: #f3f4f6;
+  padding: 0.1em 0.25em;
+  border-radius: 0.25rem;
+}
+
 .fc {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
