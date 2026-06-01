@@ -22,6 +22,8 @@ import {
   formatReadingVerificationCopy,
 } from "@/lib/copy-for-verification";
 import { getReadingPassageScore } from "@/lib/reading-passage-sets";
+import { ReadingQuestionChatPopover } from "@/components/session/ReadingQuestionChatPopover";
+import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import type { GradeResponse, ReadingQuestion } from "@/lib/types";
 
 export interface ReadingPassageOption {
@@ -71,6 +73,10 @@ interface ReadingPracticeProps {
   activePassageClbBand?: number;
   /** Per-question time tracking (seconds). */
   onQuestionFocus?: (questionIndex: number) => void;
+  /** Called when a per-question tutor chat uses the API. */
+  onReadingChatUsage?: (usage: GeminiCostBreakdown) => void;
+  /** Graded passage event id — used to persist per-question tutor chats. */
+  passageEventId?: string;
 }
 
 const tabPanelClass = "mt-3 flex min-h-0 flex-1 flex-col overflow-hidden";
@@ -289,6 +295,8 @@ export function ReadingPractice({
   suggestedClbBand,
   activePassageClbBand,
   onQuestionFocus,
+  onReadingChatUsage,
+  passageEventId,
 }: ReadingPracticeProps) {
   const sessionLimitSeconds = getSessionTimeLimitSeconds(sessionDurationMin);
   const passageLimitSeconds = getReadingPassageTimeLimitSeconds(practiceType);
@@ -594,7 +602,22 @@ export function ReadingPractice({
                                 {qIndex + 1}. {q.question}
                               </span>
                               {isGraded && result && (
-                                <GradedQuestionFeedback result={result} />
+                                <>
+                                  <GradedQuestionFeedback result={result} />
+                                  {!result.isCorrect &&
+                                    selectedIndex !== undefined &&
+                                    passageEventId && (
+                                      <ReadingQuestionChatPopover
+                                        passageEventId={passageEventId}
+                                        examPrompt={examPrompt}
+                                        question={q}
+                                        questionIndex={qIndex}
+                                        studentAnswerIndex={selectedIndex}
+                                        result={result}
+                                        onUsage={onReadingChatUsage}
+                                      />
+                                    )}
+                                </>
                               )}
                             </div>
                             {q.options.map((option, oIndex) => {

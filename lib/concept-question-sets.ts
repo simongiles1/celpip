@@ -78,12 +78,9 @@ export function getConceptSetScore(
 
   const drillCorrect =
     gradeResult.drillResults?.filter((result) => result.isCorrect).length ?? 0;
-  const writingCorrect = gradeResult.writingResult?.isAcceptable ? 1 : 0;
-  const total =
-    (gradeResult.drillResults?.length ?? drillCount) +
-    (gradeResult.writingResult ? 1 : 0);
+  const total = gradeResult.drillResults?.length ?? drillCount;
 
-  return { correct: drillCorrect + writingCorrect, total };
+  return { correct: drillCorrect, total };
 }
 
 export function formatQuestionSetLabel(

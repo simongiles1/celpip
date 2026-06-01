@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
-import { buildConceptCreateChatPrompt } from "@/lib/prompts";
+import {
+  buildConceptCreateChatPrompt,
+  buildConceptFromWritingErrorPrompt,
+} from "@/lib/prompts";
 import { NextResponse } from "next/server";
 
 const chatMessageSchema = z.object({
@@ -15,10 +18,19 @@ const existingConceptSchema = z.object({
   description: z.string(),
 });
 
+const writingErrorSchema = z.object({
+  original: z.string().min(1),
+  corrected: z.string().min(1),
+  reason: z.string().min(1),
+  suggestedConceptId: z.string().optional(),
+  suggestedLabel: z.string().optional(),
+});
+
 const requestSchema = z.object({
-  message: z.string().min(1),
+  message: z.string().min(1).optional(),
   chatHistory: z.array(chatMessageSchema).default([]),
   existingConcepts: z.array(existingConceptSchema).default([]),
+  writingError: writingErrorSchema.optional(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
 });
 
@@ -40,6 +52,7 @@ const responseSchema = z.object({
   reply: z.string(),
   readyToCreate: z.boolean(),
   concept: conceptSchema.nullable().optional(),
+  existingConceptId: z.string().optional(),
 });
 
 function parseJsonResponse(text: string): unknown {
@@ -56,11 +69,23 @@ export async function POST(request: Request) {
     const body = await request.json();
     const input = requestSchema.parse(body);
 
-    const prompt = buildConceptCreateChatPrompt({
-      existingConcepts: input.existingConcepts,
-      chatHistory: input.chatHistory,
-      userMessage: input.message,
-    });
+    if (!input.writingError && !input.message?.trim()) {
+      return NextResponse.json(
+        { error: "message or writingError is required" },
+        { status: 400 },
+      );
+    }
+
+    const prompt = input.writingError
+      ? buildConceptFromWritingErrorPrompt({
+          existingConcepts: input.existingConcepts,
+          ...input.writingError,
+        })
+      : buildConceptCreateChatPrompt({
+          existingConcepts: input.existingConcepts,
+          chatHistory: input.chatHistory,
+          userMessage: input.message!,
+        });
 
     const validateParsed = (parsed: unknown) =>
       responseSchema.safeParse(parsed).success;

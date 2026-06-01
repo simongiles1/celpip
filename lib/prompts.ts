@@ -1,3 +1,7 @@
+import {
+  formatConceptDrillItemsGenerationSpec,
+  isMultipleChoiceConcept,
+} from "@/lib/concept-drill-mc";
 import type {
   CelpipReadingPart,
   ConceptContext,
@@ -163,15 +167,93 @@ function formatConceptList(concepts: ConceptContext[] | undefined): string {
     .join("\n");
 }
 
+const MULTIPLE_CHOICE_DRILL_RULES = `
+MULTIPLE-CHOICE FORMAT (follow strictly):
+- Every item must have exactly 4 options and one correctAnswerIndex (0-3).
+- Do NOT use free-text fill-in-the-blank. Options must appear only in the "options" array, not duplicated in the prompt.
+- Distractors must be plausible but clearly wrong to a learner who knows the rule.`;
+
 export function getConceptDrillConstraints(conceptId: string | undefined): string {
+  if (conceptId === "preposition_in_at_on") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Test choosing in, at, or on for time and place. Mix both contexts across the set.
+- For most items, use a sentence with ___ and four preposition options (in / at / on / a plausible wrong preposition).
+- Include at least 2 time items and 2 place items.
+- Do not test "to" movement or article choice in this set.`;
+  }
+
   if (conceptId === "infinitive_to_usage") {
     return `
 CONCEPT-SPECIFIC DRILL RULES (follow strictly):
-- This drill is ONLY about inserting or omitting "to" after verbs of movement toward a place. It is NOT about choosing at/in/on or other prepositions.
-- DO NOT use arrive, reach, enter, or visit in fill-in-the-blank prompts where the natural answer would be at, on, in, or a bare noun. Those scenarios belong in a different lesson and produce awkward sentences (e.g. "arrive ___ your doorstep").
-- Include roughly half the items where the correct answer is "to" after movement verbs such as go, walk, drive, travel, head, move, fly, or run (e.g. "We drove ___ the airport").
-- For "when NOT to use to", use one-sentence rewrites that remove an incorrect "to" after enter, arrive, reach, or visit (e.g. "Fix: She entered to the building." → "She entered the building."). Do not use fill-in-the-blank for those cases.
+${MULTIPLE_CHOICE_DRILL_RULES}
+- This drill is ONLY about inserting or omitting "to" after verbs of movement toward a place. It is NOT about choosing at/in/on.
+- DO NOT use arrive, reach, enter, or visit in prompts where the natural answer would be at, on, in, or a bare noun.
+- Include roughly half the items where the correct option is "to" after movement verbs (go, walk, drive, travel, head, move, fly, run). Use ___ in the prompt and include "to" plus distractors such as "at", "in", or "—" (no word).
+- For "when NOT to use to", ask "Which sentence is correct?" with four full-sentence options fixing enter/arrive/reach/visit errors (e.g. remove an incorrect "to").
 - Every item must have one clear, natural best answer that directly tests the to / no-to rule.`;
+  }
+
+  if (conceptId === "articles_a_an_the") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Test a, an, the, or no article. Use "(no article)" or "—" as the fourth option when zero article is correct.
+- Use formal CELPIP-style sentences with a single article slot marked by ___.`;
+  }
+
+  if (conceptId === "connectors_transitions") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Test formal linking words (however, therefore, furthermore, moreover, nevertheless, consequently, in addition, etc.).
+- Each prompt is a two-clause sentence with ___ between clauses, or asks which connector best joins two ideas.
+- Distractors should be real connectors that do not fit the logic (contrast vs cause vs addition).`;
+  }
+
+  if (conceptId === "collocations") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Test natural word combinations and formal phrasal verbs. Each item has one blank with four collocation options.
+- Include at least one verb+noun collocation and one adjective+noun or verb+preposition collocation.
+- Distractors should be common learner errors (e.g. "do a decision" vs "make a decision").`;
+  }
+
+  if (conceptId === "vocabulary_precision") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Test choosing the most precise or formal word for CELPIP writing. Each item has ___ with four single-word or short-phrase options.
+- Distractors should be vague, informal, or slightly wrong-register words.`;
+  }
+
+  if (conceptId === "formal_tone_register") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Ask which sentence is more appropriate for formal CELPIP writing (email or survey response).
+- Provide four complete sentence options. Only one should be suitably formal; others may be too casual, rude, or vague.
+- Do not use blanks; the full sentences are the options.`;
+  }
+
+  if (conceptId === "punctuation_mechanics") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Test comma, semicolon, period, apostrophe, or no punctuation at a single marked slot (___).
+- Options should be punctuation marks or short fragments (e.g. ", and", "; however,", ". However,", "—").
+- Include comma splice and run-on fixes across the set.`;
+  }
+
+  if (conceptId === "paraphrase_recognition") {
+    return `
+CONCEPT-SPECIFIC DRILL RULES (follow strictly):
+${MULTIPLE_CHOICE_DRILL_RULES}
+- Provide a short source sentence in the prompt, then ask which option has the same meaning (paraphrase).
+- All four options should be complete sentences or clauses with similar wording but only one matching meaning.
+- Distractors should change scope, polarity, or a key detail subtly.`;
   }
 
   return "";
@@ -331,16 +413,21 @@ export function buildConceptDrillPrompt(
   const conceptConstraints =
     options?.drillConstraintsOverride?.trim() ||
     getConceptDrillConstraints(options?.conceptId);
+  const drillItemsSpec = formatConceptDrillItemsGenerationSpec(
+    options?.conceptId,
+  );
+  const mcNote = isMultipleChoiceConcept(options?.conceptId)
+    ? "\nUse multiple-choice format for every exercise (exactly 4 options each)."
+    : "";
 
   if (options?.exercisesOnly) {
     return `You are an expert CELPIP English instructor. Create a new exercise set for this concept:
 
 Concept: ${conceptLabel}
-Description: ${conceptDescription}${setNote}${conceptConstraints}
+Description: ${conceptDescription}${setNote}${conceptConstraints}${mcNote}
 
 Provide a JSON response with these exact keys:
-1. "examPrompt": A mini writing prompt (2-3 sentences the student should write applying this concept).
-2. "conceptDrillItems": An array of exactly 8 objects with "prompt" (fill-in-the-blank with a single word or short phrase, or a one-sentence rewrite) and optional "hint". Mix time and place contexts when relevant. Keep prompts concise; answers should be 1-3 words unless rewriting a full sentence.
+1. ${drillItemsSpec}
 
 Return ONLY valid JSON, no markdown fences.`;
   }
@@ -348,13 +435,12 @@ Return ONLY valid JSON, no markdown fences.`;
   return `You are an expert CELPIP English instructor. Create a focused micro-skill drill for this concept:
 
 Concept: ${conceptLabel}
-Description: ${conceptDescription}${setNote}${conceptConstraints}
+Description: ${conceptDescription}${setNote}${conceptConstraints}${mcNote}
 
 Provide a JSON response with these exact keys:
 1. "instructions": Markdown tutorial explaining the rule with 2-3 clear examples and counter-examples (e.g. when NOT to use a word).
 2. "example": A worked example showing correct usage.
-3. "examPrompt": A mini writing prompt (2-3 sentences the student should write applying this concept).
-4. "conceptDrillItems": An array of exactly 8 objects with "prompt" (fill-in-the-blank with a single word or short phrase, or a one-sentence rewrite) and optional "hint". Mix time and place contexts when relevant. Keep prompts concise; answers should be 1-3 words unless rewriting a full sentence.
+3. ${drillItemsSpec}
 
 Return ONLY valid JSON, no markdown fences.`;
 }
@@ -507,6 +593,81 @@ When ready to create, set readyToCreate to true and provide concept:
 }`;
 }
 
+export function buildConceptFromWritingErrorPrompt(input: {
+  existingConcepts: Array<{ label: string; category: string; description: string }>;
+  original: string;
+  corrected: string;
+  reason: string;
+  suggestedConceptId?: string;
+  suggestedLabel?: string;
+}): string {
+  const conceptsBlock =
+    input.existingConcepts.length > 0
+      ? input.existingConcepts
+          .map(
+            (c, i) =>
+              `${i + 1}. ${c.label} (${c.category}) — ${c.description}`,
+          )
+          .join("\n")
+      : "(No concepts yet.)";
+
+  const suggestionBlock = [
+    input.suggestedLabel ? `Suggested label: ${input.suggestedLabel}` : null,
+    input.suggestedConceptId
+      ? `Suggested id slug: ${input.suggestedConceptId}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `You are an expert CELPIP English instructor. A student made a writing mistake and needs a Concept Lab micro-skill to practice the underlying pattern.
+
+Concept Lab concepts are narrow, drillable skills — NOT broad topics like "grammar".
+
+EXISTING CONCEPTS (if the mistake clearly matches one, set readyToCreate to false, reply with which existing concept to practice, and do NOT create a duplicate):
+${conceptsBlock}
+
+WRITING MISTAKE:
+- Original: ${input.original}
+- Corrected: ${input.corrected}
+- Why it is wrong: ${input.reason}
+${suggestionBlock ? `\n${suggestionBlock}` : ""}
+
+Your job:
+1. Decide if an existing concept already covers this mistake. If yes, readyToCreate=false and name that concept in reply.
+2. Otherwise create ONE new concept now (readyToCreate=true). Do not ask follow-up questions.
+
+Rules:
+- reply: one short sentence (confirmation or which existing concept to use).
+- label: 3-8 words.
+- description: 1-2 sentences on what to practice.
+- examples: 1-3 short patterns using the student's mistake type when helpful.
+- aliases: phrases that might appear in grader feedback for this issue.
+- id: snake_case slug; prefer the suggested id when it fits, otherwise derive from label.
+
+Return ONLY valid JSON:
+{
+  "reply": "string",
+  "readyToCreate": false,
+  "concept": null,
+  "existingConceptId": "seed_or_discovered_id when an existing concept covers this mistake"
+}
+
+When creating:
+{
+  "reply": "Brief confirmation",
+  "readyToCreate": true,
+  "concept": {
+    "label": "string",
+    "category": "grammar|vocabulary|reading_strategy|writing_structure",
+    "description": "string",
+    "examples": ["optional"],
+    "aliases": ["optional"],
+    "id": "optional_snake_case"
+  }
+}`;
+}
+
 export function buildGradingPrompt(
   focusSubTest: string,
   examPrompt: string,
@@ -537,9 +698,43 @@ Every weakness in constructiveCriticism must have a matching weakness skillTag. 
 Return ONLY valid JSON, no markdown fences.`;
 }
 
+export function buildConceptMcGradingPrompt(
+  conceptLabel: string,
+  drillItemsJson: string,
+  studentAnswersJson: string,
+  scoreSummary: string,
+): string {
+  return `You are an expert English instructor grading a multiple-choice concept drill.
+
+Concept: ${conceptLabel}
+Automatic Score: ${scoreSummary}
+Drill exercises (with options and correctAnswerIndex): ${drillItemsJson}
+Student selected option indexes (0-3 per question): ${studentAnswersJson}
+
+The score is already computed. Provide JSON:
+{
+  "estimatedBand": 1-12,
+  "overallFeedback": "string markdown — brief summary only (2-3 sentences max)",
+  "positives": ["string"],
+  "constructiveCriticism": ["string"],
+  "grammarCorrections": [],
+  "drillResults": [
+    {
+      "index": 0,
+      "feedback": "One sentence explaining why the correct option is right, or why the student's choice was wrong."
+    }
+  ],
+  "skillTags": []
+}
+
+Include exactly one drillResults entry per exercise (indexes 0 through N-1). Focus feedback on the options — refer to option text, not Yes/No.
+For correct answers, give brief reinforcement. For incorrect answers, explain why the correct option fits.
+Do NOT set isCorrect, studentAnswer, or correctAnswer — those are computed separately.
+Return ONLY valid JSON, no markdown fences.`;
+}
+
 export function buildConceptGradingPrompt(
   conceptLabel: string,
-  examPrompt: string,
   drillResponses: string,
   studentSubmission: string,
 ): string {
@@ -547,7 +742,6 @@ export function buildConceptGradingPrompt(
 
 Concept: ${conceptLabel}
 Drill exercises: ${drillResponses}
-Mini writing prompt: ${examPrompt}
 Student responses: ${studentSubmission}
 
 Known concept IDs for skillTags: ${SEED_CONCEPT_IDS}
@@ -569,10 +763,6 @@ Grade each drill exercise individually. Provide JSON:
       "feedback": "one sentence explaining why correct or incorrect"
     }
   ],
-  "writingResult": {
-    "isAcceptable": true,
-    "feedback": "brief feedback on the mini writing response"
-  },
   ${SKILL_TAGS_SCHEMA}
 }
 
@@ -670,4 +860,75 @@ Provide a JSON response with these exact keys:
 4. "passageTargetClbBand": integer 6-12.
 
 Return ONLY valid JSON, no markdown fences.`;
+}
+
+export function buildReadingQuestionChatPrompt(input: {
+  examPrompt: string;
+  question: string;
+  options: string[];
+  correctAnswerIndex: number;
+  studentAnswerIndex: number;
+  gradingFeedback: string;
+  celpipPart?: string;
+  questionType?: string;
+  userMessage: string;
+  chatHistory: Array<{ role: "user" | "assistant"; content: string }>;
+}): string {
+  const historyBlock =
+    input.chatHistory.length > 0
+      ? input.chatHistory
+          .map((m) => `${m.role === "user" ? "Student" : "Tutor"}: ${m.content}`)
+          .join("\n\n")
+      : "(No prior messages.)";
+
+  const optionsBlock = input.options
+    .map(
+      (opt, i) =>
+        `${String.fromCharCode(65 + i)}. ${opt}${i === input.correctAnswerIndex ? " (correct)" : i === input.studentAnswerIndex ? " (student chose)" : ""}`,
+    )
+    .join("\n");
+
+  const metaLines = [
+    input.celpipPart ? `CELPIP part: ${input.celpipPart}` : null,
+    input.questionType ? `Question type: ${input.questionType}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `You are an expert CELPIP Reading tutor. The student missed one multiple-choice question and wants help understanding it.
+
+Stay focused on THIS question and the passage below. Do not invent facts beyond the passage. Quote or paraphrase the passage when explaining.
+
+READING PASSAGE:
+---
+${input.examPrompt}
+---
+
+QUESTION:
+${input.question}
+
+OPTIONS:
+${optionsBlock}
+
+GRADER FEEDBACK (already shown to the student):
+${input.gradingFeedback || "(No additional grader notes.)"}
+${metaLines ? `\n${metaLines}` : ""}
+
+CHAT HISTORY:
+${historyBlock}
+
+NEW STUDENT MESSAGE:
+${input.userMessage}
+
+Respond as a supportive tutor:
+- Answer the student's specific question clearly and concisely (2-5 short paragraphs max).
+- Point to relevant lines or ideas in the passage.
+- Explain why the correct option fits and why distractors do not, without being condescending.
+- If they ask about test strategy, tie advice to this question type when possible.
+- Do not change their score or suggest they were right when they were wrong.
+
+Return ONLY valid JSON:
+{
+  "reply": "Your response in plain text (markdown allowed for emphasis/lists)"
+}`;
 }

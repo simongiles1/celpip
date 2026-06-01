@@ -39,7 +39,7 @@ word_fit_select rules (CRITICAL — replaces free-text fill-in-the-blank):
 - Include spokenAlternative as one of the correct options when provided.
 - Other correct options should be reasonable everyday synonyms that fit the sentence — not only one narrow answer.
 - Do NOT include the target formal word in the options (it is visible in the app header).
-- Example for target "endeavour", spokenAlternative "try": prompt "Before using formal vocabulary, you might write that you will ___ to resolve the issue."; options ["try", "attempt", "strive", "ignore", "delay"]; correctAnswerIndexes [0, 1, 2].
+- Example for target "endeavour", spokenAlternative "try": prompt "Before using formal vocabulary, you might write that you will ___ to resolve the issue."; options ["delay", "try", "ignore", "attempt", "strive"]; correctAnswerIndexes [1, 3, 4] (correct answers must NOT cluster at the start or end of the list).
 
 Explanation rules (CRITICAL — cross-question leakage):
 - Each explanation is one short sentence shown right after that question is answered.
@@ -55,6 +55,7 @@ General question rules:
 - Each question needs "type", "prompt", and "explanation".
 - definition_choice and synonym_choice need "options" (4 strings) and "correctAnswerIndex" (0-3).
 - word_fit_select needs "options" (5 strings) and "correctAnswerIndexes" (array of 2-3 distinct indexes).
+- Vary correctAnswerIndex and correctAnswerIndexes across questions and words — never default every word to index 0 for definition_choice, [0,1,2] for word_fit_select, and 1 for synonym_choice.
 - Do not repeat the same distractors across the three questions for one word.
 - definition_choice options should be full definitions, not single-word synonyms (leave synonyms for synonym_choice and word_fit_select).
 
@@ -75,21 +76,21 @@ Return ONLY valid JSON:
           "type": "definition_choice",
           "prompt": "...",
           "options": ["...", "...", "...", "..."],
-          "correctAnswerIndex": 0,
+          "correctAnswerIndex": 2,
           "explanation": "..."
         },
         {
           "type": "word_fit_select",
           "prompt": "Check all words that could fit the blank: \"... ___ ...\"",
           "options": ["...", "...", "...", "...", "..."],
-          "correctAnswerIndexes": [0, 1, 2],
+          "correctAnswerIndexes": [1, 3, 4],
           "explanation": "..."
         },
         {
           "type": "synonym_choice",
           "prompt": "...",
           "options": ["...", "...", "...", "..."],
-          "correctAnswerIndex": 1,
+          "correctAnswerIndex": 3,
           "explanation": "..."
         }
       ]

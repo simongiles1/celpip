@@ -10,7 +10,7 @@ import {
   regenerateSchedule,
   shouldReconcileConceptInjections,
 } from "@/lib/schedule";
-import { applySkillTags, addDiscoveredConcept as mergeDiscoveredConcept } from "@/lib/skill-profile";
+import { applySkillTags, addDiscoveredConcept as mergeDiscoveredConcept, withWritingConceptFrequency } from "@/lib/skill-profile";
 import type { GeminiModel } from "@/lib/gemini";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/gemini";
 import {
@@ -25,6 +25,10 @@ import {
   saveAllData,
 } from "@/lib/storage";
 import { migrateReadingAnswerIndices } from "@/lib/repair-reading-answer-indices";
+import {
+  isReadingSubmissionEnvelope,
+  withReadingQuestionChatMessages,
+} from "@/lib/reading-submission";
 import type {
   AppSettings,
   ConceptChatMessage,
@@ -84,6 +88,11 @@ interface StudyStore {
     track?: "subtest" | "concept",
   ) => void;
   getGradedForEvent: (eventId: string) => GradedSession | undefined;
+  setReadingQuestionChatMessages: (
+    passageEventId: string,
+    questionIndex: number,
+    messages: ConceptChatMessage[],
+  ) => void;
   markEventCompleted: (eventId: string) => void;
   scheduleConceptDrill: (conceptId: string) => { start: Date; end: Date };
   reconcileConceptInjections: () => void;
@@ -142,7 +151,12 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   events: [],
   generated: [],
   graded: [],
-  skillProfile: { observations: [], conceptScores: [], discoveredConcepts: [] },
+  skillProfile: {
+    observations: [],
+    conceptScores: [],
+    discoveredConcepts: [],
+    writingConceptStats: {},
+  },
   conceptCustomizations: [],
   selectedEventId: null,
   selectedConceptId: null,
@@ -169,6 +183,14 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       }
     }
 
+    const skillProfile = withWritingConceptFrequency(
+      data.skillProfile,
+      migrated.graded,
+    );
+    if (skillProfile !== data.skillProfile) {
+      await persistSkillProfile(skillProfile);
+    }
+
     set({
       hydrated: true,
       settings: data.settings,
@@ -182,7 +204,7 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       events,
       generated: migrated.generated,
       graded: migrated.graded,
-      skillProfile: data.skillProfile,
+      skillProfile,
       conceptCustomizations: data.conceptCustomizations ?? [],
     });
   },
@@ -258,6 +280,7 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       observations: [],
       conceptScores: [],
       discoveredConcepts: [],
+      writingConceptStats: {},
     };
 
     await saveAllData({
@@ -284,7 +307,7 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       events: [],
       generated: [],
       graded: [],
-      skillProfile: { observations: [], conceptScores: [], discoveredConcepts: [] },
+      skillProfile: { observations: [], conceptScores: [], discoveredConcepts: [], writingConceptStats: {} },
       conceptCustomizations: [],
       selectedEventId: null,
       selectedConceptId: null,
@@ -376,8 +399,9 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
         band: session.estimatedBand,
         tags: gradeResult.skillTags,
       });
-      persistSkillProfile(skillProfile);
     }
+    skillProfile = withWritingConceptFrequency(skillProfile, graded);
+    persistSkillProfile(skillProfile);
 
     set({ graded, skillProfile });
 
@@ -388,6 +412,28 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
 
   getGradedForEvent: (eventId) =>
     get().graded.find((g) => g.eventId === eventId),
+
+  setReadingQuestionChatMessages: (passageEventId, questionIndex, messages) => {
+    const graded = get().graded;
+    const sessionIndex = graded.findIndex((g) => g.eventId === passageEventId);
+    if (sessionIndex < 0) return;
+
+    const session = graded[sessionIndex];
+    if (!isReadingSubmissionEnvelope(session.studentSubmission)) return;
+
+    const updatedSubmission = withReadingQuestionChatMessages(
+      session.studentSubmission,
+      questionIndex,
+      messages,
+    );
+    const nextGraded = [...graded];
+    nextGraded[sessionIndex] = {
+      ...session,
+      studentSubmission: updatedSubmission,
+    };
+    persistGraded(nextGraded);
+    set({ graded: nextGraded });
+  },
 
   markEventCompleted: (eventId) => {
     const { settings, events } = get();

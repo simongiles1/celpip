@@ -13,8 +13,10 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useStudyStore } from "@/hooks/useStudyStore";
 import { prepareAnnotatedWriting } from "@/lib/annotated-writing";
 import type { WritingAnnotation } from "@/lib/annotated-writing";
+import { getAllConcepts, getConceptById } from "@/lib/skill-profile";
 import type {
   GrammarCorrection,
   SkillTag,
@@ -38,18 +40,60 @@ interface TooltipState {
 
 const TOOLTIP_WIDTH = 288;
 const TOOLTIP_GAP = 8;
+const TOOLTIP_HIDE_DELAY_MS = 500;
+
+function resolveConceptForAnnotation(
+  annotation: WritingAnnotation,
+  profile: UserSkillProfile,
+  conceptIdOverrides: Record<number, string>,
+): {
+  conceptId?: string;
+  conceptLabel?: string;
+  inProfile: boolean;
+} {
+  const conceptId =
+    conceptIdOverrides[annotation.start] ?? annotation.conceptId;
+  if (!conceptId) {
+    return { inProfile: false };
+  }
+  const concept = getConceptById(profile, conceptId);
+  return {
+    conceptId,
+    conceptLabel: concept?.label ?? annotation.conceptLabel,
+    inProfile: Boolean(concept),
+  };
+}
 
 function FloatingAnnotationTooltip({
   state,
   tooltipRef,
+  profile,
+  conceptIdOverrides,
   onPracticeConcept,
+  onGenerateConcept,
+  generatingConcept,
+  generateError,
+  onMouseEnterTooltip,
+  onMouseLeaveTooltip,
 }: {
   state: TooltipState;
   tooltipRef: RefObject<HTMLDivElement | null>;
+  profile: UserSkillProfile;
+  conceptIdOverrides: Record<number, string>;
   onPracticeConcept?: (conceptId: string) => void;
+  onGenerateConcept?: () => void;
+  generatingConcept: boolean;
+  generateError: string | null;
+  onMouseEnterTooltip: () => void;
+  onMouseLeaveTooltip: () => void;
 }) {
   const { annotation, rect, placement } = state;
-  const { correction, conceptId, conceptLabel } = annotation;
+  const { correction } = annotation;
+  const { conceptId, conceptLabel, inProfile } = resolveConceptForAnnotation(
+    annotation,
+    profile,
+    conceptIdOverrides,
+  );
   const left = Math.min(
     Math.max(rect.left, TOOLTIP_GAP),
     window.innerWidth - TOOLTIP_WIDTH - TOOLTIP_GAP,
@@ -65,6 +109,8 @@ function FloatingAnnotationTooltip({
       role="tooltip"
       className="fixed z-[9999] w-72 rounded-lg border border-gray-200 bg-white p-3 text-left shadow-lg"
       style={style}
+      onMouseEnter={onMouseEnterTooltip}
+      onMouseLeave={onMouseLeaveTooltip}
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
         Suggested fix
@@ -75,34 +121,61 @@ function FloatingAnnotationTooltip({
         <span className="font-medium text-green-700">{correction.corrected}</span>
       </p>
       <p className="mt-2 text-sm text-gray-600">{correction.reason}</p>
-      {conceptId && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-          <Badge variant="outline" className="text-purple-800">
-            {conceptLabel ?? conceptId.replace(/_/g, " ")}
-          </Badge>
-          {onPracticeConcept ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              onClick={(event) => {
-                event.stopPropagation();
-                onPracticeConcept(conceptId);
-              }}
-            >
-              Practice concept
-            </Button>
-          ) : (
-            <Link
-              href={`/concepts?practice=${encodeURIComponent(conceptId)}`}
-              className="text-xs text-blue-600 hover:underline"
-            >
-              Open in Concept Lab
-            </Link>
-          )}
-        </div>
-      )}
+      <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3">
+        {inProfile && conceptId ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-gray-500">Practice</span>
+            <Badge variant="outline" className="text-purple-800">
+              {conceptLabel ?? conceptId.replace(/_/g, " ")}
+            </Badge>
+            {onPracticeConcept ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onPracticeConcept(conceptId);
+                }}
+              >
+                Practice concept
+              </Button>
+            ) : (
+              <Link
+                href={`/concepts?practice=${encodeURIComponent(conceptId)}`}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Open in Concept Lab
+              </Link>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500">
+              No Concept Lab skill linked yet for this mistake.
+            </p>
+            {onGenerateConcept && (
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-7 w-full text-xs"
+                disabled={generatingConcept}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onGenerateConcept();
+                }}
+              >
+                {generatingConcept ? "Generating…" : "Generate concept"}
+              </Button>
+            )}
+          </div>
+        )}
+        {generateError && (
+          <p className="text-xs text-red-600">{generateError}</p>
+        )}
+      </div>
     </div>,
     document.body,
   );
@@ -180,16 +253,27 @@ function computePlacement(
 export function AnnotatedWritingReview({
   studentResponse,
   corrections,
-  skillProfile,
+  skillProfile: _skillProfileProp,
   skillTags,
   onPracticeConcept,
 }: AnnotatedWritingReviewProps) {
+  const skillProfile = useStudyStore((s) => s.skillProfile);
+  const geminiModel = useStudyStore((s) => s.geminiModel);
+  const addDiscoveredConcept = useStudyStore((s) => s.addDiscoveredConcept);
+
   const [activeStart, setActiveStart] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [pinnedStart, setPinnedStart] = useState<number | null>(null);
+  const [conceptIdOverrides, setConceptIdOverrides] = useState<
+    Record<number, string>
+  >({});
+  const [generatingConcept, setGeneratingConcept] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoveringTooltipRef = useRef(false);
 
   const { segments, matchedCount, totalCorrections } = useMemo(
     () =>
@@ -201,6 +285,28 @@ export function AnnotatedWritingReview({
       ),
     [studentResponse, corrections, skillProfile, skillTags],
   );
+
+  const clearHideTimeout = useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+  }, []);
+
+  const dismissTooltip = useCallback(() => {
+    anchorRef.current = null;
+    setTooltip(null);
+    setGenerateError(null);
+  }, []);
+
+  const scheduleHideTooltip = useCallback(() => {
+    if (pinnedStart != null) return;
+    clearHideTimeout();
+    hideTimeoutRef.current = setTimeout(() => {
+      if (hoveringTooltipRef.current) return;
+      dismissTooltip();
+    }, TOOLTIP_HIDE_DELAY_MS);
+  }, [pinnedStart, clearHideTimeout, dismissTooltip]);
 
   const updateTooltipPosition = useCallback(() => {
     const anchor = anchorRef.current;
@@ -220,6 +326,8 @@ export function AnnotatedWritingReview({
 
   const showTooltip = useCallback(
     (element: HTMLElement, annotation: WritingAnnotation) => {
+      clearHideTimeout();
+      setGenerateError(null);
       anchorRef.current = element;
       const rect = element.getBoundingClientRect();
       setTooltip({
@@ -228,14 +336,133 @@ export function AnnotatedWritingReview({
         placement: computePlacement(rect, 180),
       });
     },
-    [],
+    [clearHideTimeout],
   );
 
   const hideTooltip = useCallback(() => {
-    if (pinnedStart != null) return;
-    anchorRef.current = null;
-    setTooltip(null);
-  }, [pinnedStart]);
+    scheduleHideTooltip();
+  }, [scheduleHideTooltip]);
+
+  const handleTooltipMouseEnter = useCallback(() => {
+    hoveringTooltipRef.current = true;
+    clearHideTimeout();
+  }, [clearHideTimeout]);
+
+  const handleTooltipMouseLeave = useCallback(() => {
+    hoveringTooltipRef.current = false;
+    scheduleHideTooltip();
+  }, [scheduleHideTooltip]);
+
+  const generateConceptForTooltip = useCallback(async () => {
+    if (!tooltip) return;
+
+    const { annotation } = tooltip;
+    const { correction } = annotation;
+    setGeneratingConcept(true);
+    setGenerateError(null);
+
+    try {
+      const existingConcepts = getAllConcepts(skillProfile).map((c) => ({
+        label: c.label,
+        category: c.category,
+        description: c.description,
+      }));
+
+      const res = await fetch("/api/concept-create-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          existingConcepts,
+          model: geminiModel,
+          writingError: {
+            original: correction.original,
+            corrected: correction.corrected,
+            reason: correction.reason,
+            suggestedConceptId: annotation.conceptId,
+            suggestedLabel: annotation.conceptLabel,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to generate concept",
+        );
+      }
+
+      const data = (await res.json()) as {
+        reply: string;
+        readyToCreate: boolean;
+        concept?: {
+          label: string;
+          category: string;
+          description: string;
+          examples?: string[];
+          aliases?: string[];
+          id?: string;
+        };
+        existingConceptId?: string;
+      };
+
+      if (data.readyToCreate && data.concept) {
+        const result = addDiscoveredConcept({
+          id: data.concept.id ?? annotation.conceptId ?? "",
+          label: data.concept.label,
+          category: data.concept.category as
+            | "grammar"
+            | "vocabulary"
+            | "reading_strategy"
+            | "writing_structure",
+          description: data.concept.description,
+          examples: data.concept.examples,
+          aliases: data.concept.aliases,
+        });
+
+        if (result.error) {
+          throw new Error(result.error);
+        }
+        if (!result.conceptId) {
+          throw new Error("Concept was not saved");
+        }
+
+        setConceptIdOverrides((prev) => ({
+          ...prev,
+          [annotation.start]: result.conceptId!,
+        }));
+        return;
+      }
+
+      const existingId = data.existingConceptId?.trim();
+      if (existingId && getConceptById(skillProfile, existingId)) {
+        setConceptIdOverrides((prev) => ({
+          ...prev,
+          [annotation.start]: existingId,
+        }));
+        return;
+      }
+
+      setGenerateError(
+        data.reply ||
+          "Could not create a concept. Try Concept Lab to add one manually.",
+      );
+    } catch (err) {
+      setGenerateError(
+        err instanceof Error ? err.message : "Failed to generate concept",
+      );
+    } finally {
+      setGeneratingConcept(false);
+    }
+  }, [
+    addDiscoveredConcept,
+    geminiModel,
+    skillProfile,
+    tooltip,
+  ]);
+
+  useEffect(() => {
+    return () => clearHideTimeout();
+  }, [clearHideTimeout]);
 
   useEffect(() => {
     if (!tooltip) return;
@@ -263,15 +490,15 @@ export function AnnotatedWritingReview({
       const target = event.target as Node;
       if (tooltipRef.current?.contains(target)) return;
       if (anchorRef.current?.contains(target)) return;
+      clearHideTimeout();
       setPinnedStart(null);
       setActiveStart(null);
-      anchorRef.current = null;
-      setTooltip(null);
+      dismissTooltip();
     };
 
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [pinnedStart]);
+  }, [pinnedStart, clearHideTimeout, dismissTooltip]);
 
   if (!studentResponse.trim() || corrections.length === 0) {
     return null;
@@ -322,8 +549,8 @@ export function AnnotatedWritingReview({
                     setActiveStart(next);
                     setPinnedStart(next);
                     if (next == null) {
-                      anchorRef.current = null;
-                      setTooltip(null);
+                      clearHideTimeout();
+                      dismissTooltip();
                     }
                   }}
                 />
@@ -343,7 +570,14 @@ export function AnnotatedWritingReview({
         <FloatingAnnotationTooltip
           state={tooltip}
           tooltipRef={tooltipRef}
+          profile={skillProfile}
+          conceptIdOverrides={conceptIdOverrides}
           onPracticeConcept={onPracticeConcept}
+          onGenerateConcept={generateConceptForTooltip}
+          generatingConcept={generatingConcept}
+          generateError={generateError}
+          onMouseEnterTooltip={handleTooltipMouseEnter}
+          onMouseLeaveTooltip={handleTooltipMouseLeave}
         />
       )}
     </Card>

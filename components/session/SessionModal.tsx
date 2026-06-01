@@ -25,8 +25,14 @@ import { useConceptChat } from "@/hooks/useConceptChat";
 import {
   appendConceptGradeMetadata,
   getStoredConceptScore,
+  getStoredConceptTimings,
   parseConceptSubmission,
 } from "@/lib/concept-submission";
+import { getSessionDurationSeconds } from "@/lib/concept-analytics";
+import {
+  buildConceptGradeRequestBody,
+  formatConceptDrillSubmission,
+} from "@/lib/concept-drill-mc";
 import {
   formatQuestionSetLabel,
   getConceptSetScore,
@@ -104,7 +110,26 @@ function SessionModalContent({
   const [drillResponses, setDrillResponses] = useState<string[]>(
     conceptSaved?.drillAnswers ?? [],
   );
-  const [conceptWriting, setConceptWriting] = useState(conceptSaved?.writingAnswer ?? "");
+  const [questionTimings, setQuestionTimings] = useState<Record<string, number>>(
+    () =>
+      isConceptUnit &&
+      typeof existingGrade?.studentSubmission === "string" &&
+      conceptSaved?.gradeMetadata
+        ? getStoredConceptTimings(existingGrade.studentSubmission)
+        : {},
+  );
+  const [initialSessionDurationSeconds, setInitialSessionDurationSeconds] =
+    useState<number | null>(() => {
+      if (
+        !isConceptUnit ||
+        typeof existingGrade?.studentSubmission !== "string" ||
+        !conceptSaved?.gradeMetadata
+      ) {
+        return null;
+      }
+      const timings = getStoredConceptTimings(existingGrade.studentSubmission);
+      return getSessionDurationSeconds(conceptSaved.gradeMetadata, timings);
+    });
   const [submitting, setSubmitting] = useState(false);
   const [gradeResult, setGradeResult] = useState<GradeResponse | null>(() => {
     if (!existingGrade) return null;
@@ -225,6 +250,9 @@ function SessionModalContent({
       setGenerateUsage(data.geminiUsage);
       if (data.conceptDrillItems?.length) {
         setDrillResponses(Array(data.conceptDrillItems.length).fill(""));
+        setQuestionTimings({});
+        setInitialSessionDurationSeconds(null);
+        setGradeResult(null);
       }
       addGenerated({
         eventId: event.id,
@@ -319,31 +347,34 @@ function SessionModalContent({
     }
   };
 
-  const handleSubmitConcept = async () => {
+  const handleSubmitConcept = async (
+    submittedTimings: Record<string, number>,
+    sessionDurationSeconds: number,
+  ) => {
     if (!content) return;
     setSubmitting(true);
     setError(null);
+    setQuestionTimings(submittedTimings);
+    setInitialSessionDurationSeconds(sessionDurationSeconds);
 
     const conceptMeta = event.conceptId
       ? getConceptById(skillProfile, event.conceptId)
       : undefined;
-    const drillBlock = drillItems
-      .map((item, i) => `Q: ${item.prompt}\nA: ${drillResponses[i] ?? ""}`)
-      .join("\n\n");
-    const baseSubmission = `DRILL RESPONSES:\n${drillBlock}\n\nMINI WRITING:\n${conceptWriting}`;
+    const drillBlock = formatConceptDrillSubmission(drillItems, drillResponses);
+    const baseSubmission = drillBlock.baseSubmission;
 
     try {
       const res = await fetch("/api/grade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          focusSubTest: "Concept",
-          examPrompt: content.examPrompt,
-          studentSubmission: baseSubmission,
-          conceptLabel: conceptMeta?.label ?? unit.focusTarget,
-          drillResponses: drillBlock,
-          model: geminiModel,
-        }),
+        body: JSON.stringify(
+          buildConceptGradeRequestBody({
+            conceptLabel: conceptMeta?.label ?? unit.focusTarget,
+            drillItems,
+            drillResponses,
+            model: geminiModel,
+          }),
+        ),
       });
 
       if (!res.ok) {
@@ -356,8 +387,26 @@ function SessionModalContent({
         baseSubmission,
         result,
         drillItems.length,
+        { questionTimings: submittedTimings, sessionDurationSeconds },
       );
-      persistGrade(result, fullSubmission, "concept");
+      const gradedDrillResults = result.drillResults?.map((drillResult) => {
+        const timeSpentSeconds = submittedTimings[String(drillResult.index)];
+        if (timeSpentSeconds == null || !Number.isFinite(timeSpentSeconds)) {
+          return drillResult;
+        }
+        return {
+          ...drillResult,
+          timeSpentSeconds: Math.max(0, Math.round(timeSpentSeconds)),
+        };
+      });
+      persistGrade(
+        {
+          ...result,
+          drillResults: gradedDrillResults,
+        },
+        fullSubmission,
+        "concept",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Grading failed");
     } finally {
@@ -437,6 +486,7 @@ function SessionModalContent({
       ) : isConcept ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <ConceptPractice
+            conceptId={event.conceptId}
             document={
               conceptDocument ??
               content.instructions
@@ -457,7 +507,6 @@ function SessionModalContent({
             onSelectQuestionSet={() => {}}
             onNewQuestionSet={() => {}}
             allowNewQuestionSets={false}
-            examPrompt={content.examPrompt}
             drillItems={drillItems}
             drillResponses={drillResponses}
             onDrillChange={(index, value) => {
@@ -467,11 +516,11 @@ function SessionModalContent({
                 return next;
               });
             }}
-            writingResponse={conceptWriting}
-            onWritingChange={setConceptWriting}
             onSubmit={handleSubmitConcept}
             submitting={submitting}
             gradeResult={gradeResult}
+            initialQuestionTimings={questionTimings}
+            initialSessionDurationSeconds={initialSessionDurationSeconds}
           />
         </div>
       ) : (

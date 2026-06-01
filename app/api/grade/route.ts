@@ -1,9 +1,16 @@
 import { z } from "zod";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
+import {
+  buildConceptDrillResults,
+  computeConceptDrillScore,
+  isMultipleChoiceDrillSet,
+  parseConceptMcAnswers,
+} from "@/lib/concept-drill-mc";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
 import { normalizeGradingPayload } from "@/lib/normalize-grading-response";
 import {
   buildConceptGradingPrompt,
+  buildConceptMcGradingPrompt,
   buildGradingPrompt,
   buildReadingGradingPrompt,
 } from "@/lib/prompts";
@@ -47,12 +54,20 @@ const skillTagSchema = z.object({
   evidence: z.string(),
 });
 
+const conceptDrillItemSchema = z.object({
+  prompt: z.string(),
+  hint: z.string().optional(),
+  options: z.array(z.string()).length(4),
+  correctAnswerIndex: z.number().int().min(0).max(3),
+});
+
 const requestSchema = z.object({
   focusSubTest: z.string(),
   examPrompt: z.string(),
   studentSubmission: z.union([z.string(), z.record(z.string(), z.number())]),
   readingQuestions: z.array(readingQuestionSchema).optional(),
   conceptLabel: z.string().optional(),
+  conceptDrillItems: z.array(conceptDrillItemSchema).optional(),
   drillResponses: z.string().optional(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
 });
@@ -119,8 +134,39 @@ function prepareGradingPayload(parsed: unknown): unknown {
   return normalizeGradingPayload(parsed);
 }
 
+const conceptMcGradingResponseSchema = z.object({
+  estimatedBand: z.number().min(1).max(12),
+  overallFeedback: z.string(),
+  positives: z.array(z.string()),
+  constructiveCriticism: z.array(z.string()),
+  grammarCorrections: z
+    .array(
+      z.object({
+        original: z.string(),
+        corrected: z.string(),
+        reason: z.string(),
+        conceptId: z.string().optional(),
+      }),
+    )
+    .optional()
+    .default([]),
+  skillTags: z.array(skillTagSchema).optional().default([]),
+  drillResults: z
+    .array(
+      z.object({
+        index: z.number(),
+        feedback: z.string(),
+      }),
+    )
+    .optional(),
+});
+
 function validateGradingPayload(parsed: unknown) {
   return responseSchema.safeParse(prepareGradingPayload(parsed));
+}
+
+function validateConceptMcGradingPayload(parsed: unknown) {
+  return conceptMcGradingResponseSchema.safeParse(prepareGradingPayload(parsed));
 }
 
 function computeReadingScore(
@@ -149,6 +195,11 @@ export async function POST(request: Request) {
 
     let prompt: string;
     let autoBand: number | undefined;
+    let conceptDrillItemsForGrade:
+      | z.infer<typeof conceptDrillItemSchema>[]
+      | undefined;
+    let conceptMcAnswers: Record<string, number> | undefined;
+    let isMcConceptGrade = false;
 
     let readingQuestionsForGrade: z.infer<typeof readingQuestionSchema>[] | undefined;
 
@@ -172,6 +223,29 @@ export async function POST(request: Request) {
         score.summary,
         readingQuestionsForGrade.length,
       );
+    } else if (
+      input.focusSubTest === "Concept" &&
+      input.conceptLabel &&
+      input.conceptDrillItems?.length &&
+      isMultipleChoiceDrillSet(input.conceptDrillItems)
+    ) {
+      isMcConceptGrade = true;
+      conceptDrillItemsForGrade = input.conceptDrillItems;
+      conceptMcAnswers = parseConceptMcAnswers(
+        input.studentSubmission,
+        input.drillResponses,
+      );
+      const score = computeConceptDrillScore(
+        conceptMcAnswers,
+        conceptDrillItemsForGrade,
+      );
+      autoBand = score.band;
+      prompt = buildConceptMcGradingPrompt(
+        input.conceptLabel,
+        JSON.stringify(conceptDrillItemsForGrade),
+        JSON.stringify(conceptMcAnswers),
+        score.summary,
+      );
     } else if (input.focusSubTest === "Concept" && input.conceptLabel) {
       const submission =
         typeof input.studentSubmission === "string"
@@ -179,7 +253,6 @@ export async function POST(request: Request) {
           : JSON.stringify(input.studentSubmission);
       prompt = buildConceptGradingPrompt(
         input.conceptLabel,
-        input.examPrompt,
         input.drillResponses ?? "",
         submission,
       );
@@ -195,22 +268,32 @@ export async function POST(request: Request) {
       );
     }
 
+    const validateParsed = (parsed: unknown) =>
+      isMcConceptGrade
+        ? validateConceptMcGradingPayload(parsed).success
+        : validateGradingPayload(parsed).success;
+
     const { text, usage } = await callGeminiWithJsonRetry(
       prompt,
       input.model,
       "Return strictly valid JSON matching the schema. No prose, no markdown.",
       "grade",
       parseJsonResponse,
-      (parsed) => validateGradingPayload(parsed).success,
+      validateParsed,
       {
         describeValidationFailure: (parsed) => {
-          const result = validateGradingPayload(parsed);
+          const result = isMcConceptGrade
+            ? validateConceptMcGradingPayload(parsed)
+            : validateGradingPayload(parsed);
           return result.success ? undefined : formatZodIssues(result.error);
         },
       },
     );
 
-    const validated = validateGradingPayload(parseJsonResponse(text));
+    const parsedResponse = parseJsonResponse(text);
+    const validated = isMcConceptGrade
+      ? validateConceptMcGradingPayload(parsedResponse)
+      : validateGradingPayload(parsedResponse);
 
     if (!validated.success) {
       console.error(
@@ -223,7 +306,32 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = validated.data;
+    if (isMcConceptGrade && conceptDrillItemsForGrade && conceptMcAnswers) {
+      const mcResult = validated.data;
+      const estimatedBand =
+        autoBand !== undefined
+          ? Math.round((mcResult.estimatedBand + autoBand) / 2)
+          : mcResult.estimatedBand;
+
+      return NextResponse.json({
+        ...mcResult,
+        estimatedBand,
+        drillResults: buildConceptDrillResults(
+          conceptMcAnswers,
+          conceptDrillItemsForGrade,
+          mcResult.drillResults?.map((item) => ({
+            index: item.index,
+            isCorrect: false,
+            studentAnswer: "",
+            correctAnswer: "",
+            feedback: item.feedback,
+          })),
+        ),
+        geminiUsage: usage,
+      });
+    }
+
+    const result = validated.data as z.infer<typeof responseSchema>;
     if (autoBand !== undefined) {
       result.estimatedBand = Math.round((result.estimatedBand + autoBand) / 2);
     }

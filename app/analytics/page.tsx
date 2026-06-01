@@ -1,5 +1,6 @@
 "use client";
 
+import { WritingConceptFrequencyChart } from "@/components/analytics/WritingConceptFrequencyChart";
 import { ConceptTrendChart } from "@/components/analytics/ConceptTrendChart";
 import { MistakeLog } from "@/components/analytics/MistakeLog";
 import { MockHistory } from "@/components/analytics/MockHistory";
@@ -94,6 +95,19 @@ export default function AnalyticsPage() {
 
       <ScoreTimeline />
       <SkillProfileSummary />
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">
+            Writing diagnostics
+          </h2>
+          <p className="text-sm text-gray-600">
+            Which concepts show up most in your writing feedback — compare
+            exercises flagged (breadth) vs total mistake instances (volume).
+          </p>
+        </div>
+        <WritingConceptFrequencyChart />
+      </section>
 
       <section className="space-y-4">
         <div>

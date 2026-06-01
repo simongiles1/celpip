@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
+import {
+  getConceptDrillItemsArraySchema,
+  normalizeConceptDrillItems,
+} from "@/lib/concept-drill-mc";
 import { normalizeGeneratedReadingPayload } from "@/lib/normalize-generated-reading";
 import {
   buildCelpipMockPrompt,
@@ -76,7 +80,30 @@ const readingQuestionSchema = z.object({
 const conceptDrillItemSchema = z.object({
   prompt: z.string(),
   hint: z.string().optional(),
+  options: z.array(z.string()).length(4).optional(),
+  correctAnswerIndex: z.number().int().min(0).max(3).optional(),
 });
+
+function prepareGeneratedPayload(
+  parsed: unknown,
+  conceptId?: string,
+): unknown {
+  if (!parsed || typeof parsed !== "object") {
+    return normalizeGeneratedReadingPayload(parsed);
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const normalizedDrillItems = normalizeConceptDrillItems(
+    record.conceptDrillItems,
+    conceptId,
+  );
+
+  const base = normalizeGeneratedReadingPayload(parsed) as Record<string, unknown>;
+  if (normalizedDrillItems) {
+    return { ...base, conceptDrillItems: normalizedDrillItems };
+  }
+  return base;
+}
 
 const responseSchema = z.object({
   instructions: z.string(),
@@ -88,10 +115,27 @@ const responseSchema = z.object({
   passageTargetClbBand: z.number().int().min(6).max(12).optional(),
 });
 
-const conceptExercisesResponseSchema = z.object({
-  examPrompt: z.string(),
-  conceptDrillItems: z.array(conceptDrillItemSchema).min(8),
-});
+const conceptExercisesResponseSchema = (conceptId?: string) =>
+  z.object({
+    conceptDrillItems: getConceptDrillItemsArraySchema(conceptId),
+  });
+
+function getActiveGenerationSchema(options: {
+  readingPassageOnly: boolean;
+  exercisesOnly: boolean;
+  conceptId?: string;
+}) {
+  if (options.readingPassageOnly) {
+    return readingPassageOnlyResponseSchema;
+  }
+  if (options.exercisesOnly) {
+    return conceptExercisesResponseSchema(options.conceptId);
+  }
+  return responseSchema.extend({
+    conceptDrillItems: getConceptDrillItemsArraySchema(options.conceptId)
+      .optional(),
+  });
+}
 
 const readingPassageOnlyResponseSchema = z.object({
   examPrompt: z.string(),
@@ -125,10 +169,6 @@ function formatZodIssues(error: z.ZodError): string {
     .slice(0, 8)
     .map((issue) => `${issue.path.join(".") || "response"}: ${issue.message}`)
     .join("\n");
-}
-
-function prepareGeneratedPayload(parsed: unknown): unknown {
-  return normalizeGeneratedReadingPayload(parsed);
 }
 
 export async function POST(request: Request) {
@@ -233,31 +273,39 @@ export async function POST(request: Request) {
           },
         );
 
-    const activeSchema = readingPassageOnly
-      ? readingPassageOnlyResponseSchema
-      : exercisesOnly
-        ? conceptExercisesResponseSchema
-        : responseSchema;
+    const conceptId = input.targetConceptId;
+    const preparePayload = (parsed: unknown) =>
+      prepareGeneratedPayload(parsed, conceptId);
+
+    const activeSchema = getActiveGenerationSchema({
+      readingPassageOnly,
+      exercisesOnly: Boolean(exercisesOnly),
+      conceptId,
+    });
 
     const validateParsed = (parsed: unknown) =>
-      activeSchema.safeParse(prepareGeneratedPayload(parsed)).success;
+      activeSchema.safeParse(preparePayload(parsed)).success;
+
+    const mcRetryHint = exercisesOnly || isConcept
+      ? " Use correctAnswerIndex as 0-3 (not 1-4). Each conceptDrillItem must have exactly 4 options when multiple-choice is required."
+      : "";
 
     const { text, usage } = await callGeminiWithJsonRetry(
       prompt,
       input.model,
-      "Your previous response was invalid. Return strictly valid JSON matching the schema. Use correctAnswerIndex as 0-3 (not 1-4). Each question must have exactly 4 options.",
+      `Your previous response was invalid. Return strictly valid JSON matching the schema.${mcRetryHint}`,
       "generate",
       parseJsonResponse,
       validateParsed,
       {
         describeValidationFailure: (parsed) => {
-          const result = activeSchema.safeParse(prepareGeneratedPayload(parsed));
+          const result = activeSchema.safeParse(preparePayload(parsed));
           return result.success ? undefined : formatZodIssues(result.error);
         },
       },
     );
 
-    const parsed = prepareGeneratedPayload(parseJsonResponse(text));
+    const parsed = preparePayload(parseJsonResponse(text));
     const validated = activeSchema.safeParse(parsed);
 
     if (!validated.success) {
@@ -316,11 +364,13 @@ export async function POST(request: Request) {
     }
 
     if (exercisesOnly) {
-      const drillData = conceptExercisesResponseSchema.parse(validated.data);
+      const drillData = conceptExercisesResponseSchema(conceptId).parse(
+        validated.data,
+      );
       return NextResponse.json({
         instructions: "",
         example: "",
-        examPrompt: drillData.examPrompt,
+        examPrompt: "",
         conceptDrillItems: drillData.conceptDrillItems,
         geminiUsage: usage,
       });

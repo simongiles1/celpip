@@ -243,6 +243,55 @@ function VocabularyQuestionCard({
   );
 }
 
+function VocabularyWordHints({ word }: { word: VocabularyWord }) {
+  const [showExampleSentence, setShowExampleSentence] = useState(false);
+  const [showDefinition, setShowDefinition] = useState(false);
+
+  useEffect(() => {
+    setShowExampleSentence(false);
+    setShowDefinition(false);
+  }, [word.word]);
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant={showExampleSentence ? "default" : "outline"}
+        aria-pressed={showExampleSentence}
+        onClick={() => setShowExampleSentence((visible) => !visible)}
+      >
+        {showExampleSentence ? "Hide sentence" : "Use it in a sentence"}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={showDefinition ? "default" : "outline"}
+        aria-pressed={showDefinition}
+        onClick={() => setShowDefinition((visible) => !visible)}
+      >
+        {showDefinition ? "Hide definition" : "Show me the definition"}
+      </Button>
+
+      {(showExampleSentence || showDefinition) && (
+        <div className="w-full space-y-2 pt-1">
+          {showExampleSentence && (
+            <blockquote className="border-l-4 border-teal-500 pl-3 text-sm italic text-gray-700">
+              {word.exampleSentence}
+            </blockquote>
+          )}
+
+          {showDefinition && (
+            <p className="rounded-md border border-teal-200 bg-white px-3 py-2 text-sm text-gray-800">
+              {word.definition}
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function VocabularyReferenceCard({ word }: { word: VocabularyWord }) {
   return (
     <div className="space-y-3 rounded-lg border border-teal-200 bg-teal-50/50 p-4 text-sm">
@@ -430,14 +479,15 @@ export function VocabularyPractice({
 
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-2xl font-semibold text-gray-900">
                 {currentWord.word}
               </h3>
               <WordPronunciationButton word={currentWord.word} />
+              <VocabularyWordHints word={currentWord} />
             </div>
-            <p className="mt-1 text-sm text-gray-500">{currentWord.partOfSpeech}</p>
+            <p className="text-sm text-gray-500">{currentWord.partOfSpeech}</p>
           </div>
           {allQuestionsChecked && (
             <Badge variant="outline">

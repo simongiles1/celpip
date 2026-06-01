@@ -1,13 +1,19 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { ConceptDrillItem, GradeResponse } from "@/lib/types";
+import { ConceptPracticeHistory } from "@/components/session/ConceptPracticeHistory";
+import { formatConceptDuration } from "@/lib/concept-analytics";
+import {
+  isMultipleChoiceDrillItem,
+} from "@/lib/concept-drill-mc";
 import { getConceptSetScore } from "@/lib/concept-question-sets";
+import type { ConceptDrillItem, GradeResponse } from "@/lib/types";
 
 interface QuestionSetOption {
   setNumber: number;
@@ -16,21 +22,24 @@ interface QuestionSetOption {
 }
 
 interface ConceptPracticeProps {
+  conceptId?: string;
   document: string;
   questionSets: QuestionSetOption[];
   onSelectQuestionSet: (setNumber: number) => void;
   onNewQuestionSet: () => void;
   generatingNewSet?: boolean;
   allowNewQuestionSets?: boolean;
-  examPrompt: string;
   drillItems: ConceptDrillItem[];
   drillResponses: string[];
   onDrillChange: (index: number, value: string) => void;
-  writingResponse: string;
-  onWritingChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (
+    questionTimings: Record<string, number>,
+    sessionDurationSeconds: number,
+  ) => void;
   submitting: boolean;
   gradeResult?: GradeResponse | null;
+  initialQuestionTimings?: Record<string, number>;
+  initialSessionDurationSeconds?: number | null;
 }
 
 function DrillResultBadge({ isCorrect }: { isCorrect: boolean }) {
@@ -41,33 +50,119 @@ function DrillResultBadge({ isCorrect }: { isCorrect: boolean }) {
   );
 }
 
+function QuestionTimerBadge({
+  seconds,
+  live = false,
+}: {
+  seconds: number;
+  live?: boolean;
+}) {
+  return (
+    <Badge variant="outline" className="shrink-0 text-xs tabular-nums">
+      {live ? "⏱ " : ""}
+      {formatConceptDuration(seconds)}
+    </Badge>
+  );
+}
+
 const tabPanelClass = "mt-3 flex min-h-0 flex-1 flex-col overflow-hidden";
 const scrollPanelClass =
   "min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-200 px-4 py-3";
 
+function finalizeQuestionTimings(
+  questionTimings: Record<string, number>,
+  activeQuestion: { index: number; enteredAt: number } | null,
+): Record<string, number> {
+  if (!activeQuestion) return questionTimings;
+
+  const elapsed = (Date.now() - activeQuestion.enteredAt) / 1000;
+  if (elapsed < 0.5) return questionTimings;
+
+  const key = String(activeQuestion.index);
+  return {
+    ...questionTimings,
+    [key]: Math.round((questionTimings[key] ?? 0) + elapsed),
+  };
+}
+
+function getMcOptionsGridClass(options: string[]): string {
+  const maxLength = Math.max(...options.map((option) => option.length));
+  if (maxLength <= 24) return "mt-2 flex flex-wrap gap-2";
+  if (maxLength <= 56) return "mt-2 grid grid-cols-2 gap-2";
+  return "mt-2 grid grid-cols-1 gap-2";
+}
+
+function isCompactMcOptions(options: string[]): boolean {
+  return Math.max(...options.map((option) => option.length)) <= 24;
+}
+
+function getOptionClassName({
+  selected,
+  isCorrectOption,
+  isGraded,
+  compact = false,
+}: {
+  selected: boolean;
+  isCorrectOption: boolean;
+  isGraded: boolean;
+  compact?: boolean;
+}): string {
+  const layout = compact
+    ? "inline-flex w-fit items-center gap-1.5 px-3 py-1.5"
+    : "min-w-0 items-start gap-2 p-2";
+  const base = `flex min-h-10 rounded-md border text-sm ${layout}`;
+
+  if (isGraded) {
+    if (selected && isCorrectOption) {
+      return `${base} border-green-500 bg-green-50`;
+    }
+    if (selected && !isCorrectOption) {
+      return `${base} border-red-500 bg-red-50`;
+    }
+    if (isCorrectOption) {
+      return `${base} border-green-300 bg-green-50/70`;
+    }
+    return `${base} border-gray-200`;
+  }
+
+  return selected
+    ? `${base} cursor-pointer border-blue-500 bg-blue-50`
+    : `${base} cursor-pointer border-gray-200 hover:bg-gray-50`;
+}
+
+function isDrillResponseComplete(
+  item: ConceptDrillItem,
+  response: string | undefined,
+): boolean {
+  if (isMultipleChoiceDrillItem(item)) {
+    const selected = Number(response);
+    return Number.isInteger(selected) && selected >= 0 && selected <= 3;
+  }
+  return Boolean(response?.trim());
+}
+
 export function ConceptPractice({
+  conceptId,
   document,
   questionSets,
   onSelectQuestionSet,
   onNewQuestionSet,
   generatingNewSet = false,
   allowNewQuestionSets = true,
-  examPrompt,
   drillItems,
   drillResponses,
   onDrillChange,
-  writingResponse,
-  onWritingChange,
   onSubmit,
   submitting,
   gradeResult,
+  initialQuestionTimings = {},
+  initialSessionDurationSeconds = null,
 }: ConceptPracticeProps) {
-  const drillsComplete = drillItems.every((_, i) => drillResponses[i]?.trim());
-  const allComplete = drillsComplete && writingResponse.trim();
-
-  const hasPerExerciseResults = Boolean(
-    gradeResult?.drillResults?.length || gradeResult?.writingResult,
+  const allComplete = drillItems.every((item, index) =>
+    isDrillResponseComplete(item, drillResponses[index]),
   );
+
+  const hasPerExerciseResults = Boolean(gradeResult?.drillResults?.length);
   const isGraded = Boolean(gradeResult && hasPerExerciseResults);
 
   const drillResultsByIndex = new Map(
@@ -76,15 +171,183 @@ export function ConceptPractice({
 
   const setScore = getConceptSetScore(gradeResult, drillItems.length);
 
+  const [questionTimings, setQuestionTimings] = useState<Record<string, number>>(
+    () => initialQuestionTimings,
+  );
+  const sessionStartedAtRef = useRef<number | null>(null);
+  const [sessionElapsed, setSessionElapsed] = useState(0);
+  const [frozenSessionDuration, setFrozenSessionDuration] = useState<
+    number | null
+  >(initialSessionDurationSeconds);
+  const activeQuestionRef = useRef<{ index: number; enteredAt: number } | null>(
+    null,
+  );
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState<number | null>(
+    null,
+  );
+  const [activeElapsed, setActiveElapsed] = useState(0);
+
+  useEffect(() => {
+    setQuestionTimings(initialQuestionTimings);
+    activeQuestionRef.current = null;
+    setActiveQuestionIndex(null);
+    setActiveElapsed(0);
+
+    if (isGraded) {
+      sessionStartedAtRef.current = null;
+      setSessionElapsed(initialSessionDurationSeconds ?? 0);
+      setFrozenSessionDuration(initialSessionDurationSeconds);
+      return;
+    }
+
+    if (drillItems.length > 0) {
+      sessionStartedAtRef.current = Date.now();
+      setSessionElapsed(0);
+      setFrozenSessionDuration(null);
+      return;
+    }
+
+    sessionStartedAtRef.current = null;
+    setSessionElapsed(0);
+    setFrozenSessionDuration(null);
+  }, [
+    initialQuestionTimings,
+    initialSessionDurationSeconds,
+    drillItems.length,
+    isGraded,
+  ]);
+
+  const commitActiveQuestionTiming = useCallback(() => {
+    const active = activeQuestionRef.current;
+    if (!active) return;
+
+    const elapsed = (Date.now() - active.enteredAt) / 1000;
+    if (elapsed < 0.5) return;
+
+    setQuestionTimings((prev) => {
+      const key = String(active.index);
+      return {
+        ...prev,
+        [key]: Math.round((prev[key] ?? 0) + elapsed),
+      };
+    });
+    activeQuestionRef.current = {
+      index: active.index,
+      enteredAt: Date.now(),
+    };
+  }, []);
+
+  const handleQuestionFocus = useCallback(
+    (questionIndex: number) => {
+      if (isGraded) return;
+
+      const active = activeQuestionRef.current;
+      if (active && active.index !== questionIndex) {
+        commitActiveQuestionTiming();
+      }
+
+      activeQuestionRef.current = {
+        index: questionIndex,
+        enteredAt: Date.now(),
+      };
+      setActiveQuestionIndex(questionIndex);
+      setActiveElapsed(0);
+    },
+    [commitActiveQuestionTiming, isGraded],
+  );
+
+  useEffect(() => {
+    if (isGraded || drillItems.length === 0 || !sessionStartedAtRef.current) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (!sessionStartedAtRef.current) return;
+      setSessionElapsed(
+        Math.floor((Date.now() - sessionStartedAtRef.current) / 1000),
+      );
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isGraded, drillItems.length]);
+
+  useEffect(() => {
+    if (isGraded) return;
+
+    const intervalId = window.setInterval(() => {
+      const active = activeQuestionRef.current;
+      if (!active) {
+        setActiveElapsed(0);
+        return;
+      }
+      setActiveElapsed(Math.floor((Date.now() - active.enteredAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isGraded]);
+
+  const getDisplayedQuestionSeconds = (index: number): number | null => {
+    const result = drillResultsByIndex.get(index);
+    if (result?.timeSpentSeconds != null) {
+      return result.timeSpentSeconds;
+    }
+
+    const stored = questionTimings[String(index)];
+    if (stored == null) return null;
+
+    if (!isGraded && activeQuestionIndex === index) {
+      return stored + activeElapsed;
+    }
+
+    return stored;
+  };
+
+  const perQuestionTimeSeconds = drillItems.reduce((sum, _, index) => {
+    const seconds = getDisplayedQuestionSeconds(index);
+    return seconds != null ? sum + seconds : sum;
+  }, 0);
+
+  const sessionTimeSeconds = isGraded
+    ? (frozenSessionDuration ?? perQuestionTimeSeconds)
+    : sessionElapsed;
+
+  const handleSubmitClick = () => {
+    const finalSessionDuration = sessionStartedAtRef.current
+      ? Math.round((Date.now() - sessionStartedAtRef.current) / 1000)
+      : sessionElapsed;
+    sessionStartedAtRef.current = null;
+    setSessionElapsed(finalSessionDuration);
+    setFrozenSessionDuration(finalSessionDuration);
+
+    const finalTimings = finalizeQuestionTimings(
+      questionTimings,
+      activeQuestionRef.current,
+    );
+    activeQuestionRef.current = null;
+    setActiveQuestionIndex(null);
+    setActiveElapsed(0);
+    setQuestionTimings(finalTimings);
+    onSubmit(finalTimings, finalSessionDuration);
+  };
+
+  const showHistoryTab = Boolean(conceptId);
+
   return (
     <Tabs defaultValue="instructions" className="flex min-h-0 flex-1 flex-col">
-      <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1">
+      <TabsList
+        className={`grid h-auto w-full shrink-0 gap-1 ${showHistoryTab ? "grid-cols-3" : "grid-cols-2"}`}
+      >
         <TabsTrigger value="instructions" className="text-xs sm:text-sm">
           Instructions
         </TabsTrigger>
         <TabsTrigger value="exercises" className="text-xs sm:text-sm">
           Exercises
         </TabsTrigger>
+        {showHistoryTab && (
+          <TabsTrigger value="history" className="text-xs sm:text-sm">
+            History
+          </TabsTrigger>
+        )}
       </TabsList>
 
       <TabsContent value="instructions" className={tabPanelClass}>
@@ -94,6 +357,14 @@ export function ConceptPractice({
           </div>
         </div>
       </TabsContent>
+
+      {showHistoryTab && conceptId && (
+        <TabsContent value="history" className={tabPanelClass}>
+          <div className={scrollPanelClass}>
+            <ConceptPracticeHistory conceptId={conceptId} variant="tab" />
+          </div>
+        </TabsContent>
+      )}
 
       <TabsContent value="exercises" className={tabPanelClass}>
         <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -130,17 +401,59 @@ export function ConceptPractice({
                   {setScore.correct}/{setScore.total}
                 </Badge>
                 <span className="text-sm text-gray-400">·</span>
+                <span className="text-sm font-medium text-gray-600">Total time</span>
+                <Badge variant="outline" className="text-base px-3 py-1 tabular-nums">
+                  {formatConceptDuration(sessionTimeSeconds)}
+                </Badge>
+                {setScore.total > 0 && sessionTimeSeconds > 0 && (
+                  <>
+                    <span className="text-sm text-gray-400">·</span>
+                    <span className="text-sm font-medium text-gray-600">
+                      Avg per question
+                    </span>
+                    <Badge variant="outline" className="text-base px-3 py-1 tabular-nums">
+                      {formatConceptDuration(
+                        Math.round(sessionTimeSeconds / setScore.total),
+                      )}
+                    </Badge>
+                  </>
+                )}
+                <span className="text-sm text-gray-400">·</span>
                 <span className="text-sm font-medium text-gray-600">Estimated CLB</span>
                 <Badge variant="success" className="text-base px-3 py-1">
                   {gradeResult.estimatedBand}
                 </Badge>
               </div>
             )}
+
+            {!isGraded && drillItems.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-2">
+                <span className="text-sm font-medium text-blue-900">Elapsed</span>
+                <Badge variant="outline" className="tabular-nums">
+                  {formatConceptDuration(sessionTimeSeconds)}
+                </Badge>
+              </div>
+            )}
+
+            {!isGraded && drillItems.length > 0 && (
+              <p className="text-xs text-gray-500">
+                Timer starts when the question set loads and stops when you
+                submit. Per-question time tracks while you work on each exercise.
+              </p>
+            )}
           </div>
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             {drillItems.map((item, index) => {
               const result = drillResultsByIndex.get(index);
+              const questionSeconds = getDisplayedQuestionSeconds(index);
+              const isActive = !isGraded && activeQuestionIndex === index;
+              const isMc = isMultipleChoiceDrillItem(item);
+              const selectedIndex =
+                isMc && drillResponses[index] !== ""
+                  ? Number(drillResponses[index])
+                  : undefined;
+
               return (
                 <div
                   key={index}
@@ -149,8 +462,12 @@ export function ConceptPractice({
                       ? result.isCorrect
                         ? "border-green-200 bg-green-50/50"
                         : "border-red-200 bg-red-50/50"
-                      : "border-gray-200"
+                      : isActive
+                        ? "border-blue-200 bg-blue-50/30"
+                        : "border-gray-200"
                   }`}
+                  onFocusCapture={() => handleQuestionFocus(index)}
+                  onPointerDownCapture={() => handleQuestionFocus(index)}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="text-sm font-medium text-gray-800">
@@ -166,19 +483,72 @@ export function ConceptPractice({
                         {item.prompt}
                       </ReactMarkdown>
                     </p>
-                    {result && <DrillResultBadge isCorrect={result.isCorrect} />}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {questionSeconds != null && questionSeconds > 0 && (
+                        <QuestionTimerBadge
+                          seconds={questionSeconds}
+                          live={isActive}
+                        />
+                      )}
+                      {result && <DrillResultBadge isCorrect={result.isCorrect} />}
+                    </div>
                   </div>
                   {item.hint && !isGraded && (
                     <p className="mt-1 text-xs text-gray-500">Hint: {item.hint}</p>
                   )}
-                  <Input
-                    className="mt-2 max-w-xs"
-                    value={drillResponses[index] ?? ""}
-                    onChange={(e) => onDrillChange(index, e.target.value)}
-                    placeholder="Your answer"
-                    disabled={isGraded}
-                    readOnly={isGraded}
-                  />
+                  {isMc ? (
+                    <div className={getMcOptionsGridClass(item.options)}>
+                      {item.options.map((option, optionIndex) => {
+                        const selected = selectedIndex === optionIndex;
+                        const isCorrectOption =
+                          optionIndex === item.correctAnswerIndex;
+                        const compact = isCompactMcOptions(item.options);
+
+                        return (
+                          <label
+                            key={`${index}-${optionIndex}`}
+                            className={getOptionClassName({
+                              selected,
+                              isCorrectOption,
+                              isGraded,
+                              compact,
+                            })}
+                          >
+                            <input
+                              type="radio"
+                              name={`concept-drill-${index}`}
+                              checked={selected}
+                              onChange={() =>
+                                onDrillChange(index, String(optionIndex))
+                              }
+                              disabled={isGraded}
+                              className="shrink-0"
+                            />
+                            <span
+                              className={
+                                compact
+                                  ? "min-w-0 truncate"
+                                  : "min-w-0 flex-1 break-words"
+                              }
+                            >
+                              {option}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <Input
+                      className="mt-2 max-w-xs"
+                      value={drillResponses[index] ?? ""}
+                      onChange={(e) => onDrillChange(index, e.target.value)}
+                      onFocus={() => handleQuestionFocus(index)}
+                      onPointerDown={() => handleQuestionFocus(index)}
+                      placeholder="Your answer"
+                      disabled={isGraded}
+                      readOnly={isGraded}
+                    />
+                  )}
                   {result && (
                     <div className="mt-2 space-y-1 text-sm">
                       {!result.isCorrect && (
@@ -197,50 +567,12 @@ export function ConceptPractice({
                 </div>
               );
             })}
-
-            <div
-              className={`rounded-lg border p-3 ${
-                gradeResult?.writingResult
-                  ? gradeResult.writingResult.isAcceptable
-                    ? "border-green-200 bg-green-50/50"
-                    : "border-amber-200 bg-amber-50/50"
-                  : "border-blue-200 bg-blue-50/50"
-              }`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <p className="text-sm font-medium text-gray-800">
-                  {drillItems.length + 1}. Mini writing
-                </p>
-                {gradeResult?.writingResult && (
-                  <DrillResultBadge
-                    isCorrect={gradeResult.writingResult.isAcceptable}
-                  />
-                )}
-              </div>
-              <div className="prose prose-sm mt-1 max-w-none text-gray-700">
-                <ReactMarkdown>{examPrompt}</ReactMarkdown>
-              </div>
-              <Textarea
-                className="mt-2 min-h-[6rem]"
-                rows={4}
-                value={writingResponse}
-                onChange={(e) => onWritingChange(e.target.value)}
-                placeholder="Write 2–3 sentences applying the concept..."
-                disabled={isGraded}
-                readOnly={isGraded}
-              />
-              {gradeResult?.writingResult && (
-                <p className="mt-2 text-sm text-gray-600">
-                  {gradeResult.writingResult.feedback}
-                </p>
-              )}
-            </div>
           </div>
 
           {!isGraded && (
             <div className="shrink-0 border-t border-gray-100 pt-4">
               <Button
-                onClick={onSubmit}
+                onClick={handleSubmitClick}
                 disabled={submitting || !allComplete || drillItems.length === 0}
                 className="w-full sm:w-auto"
               >

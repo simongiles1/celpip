@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
 import { buildVocabularyPrompt } from "@/lib/vocabulary-prompts";
+import { shuffleVocabularyWords } from "@/lib/vocabulary-shuffle";
 import {
   validateWordQuestions,
   vocabularyResponseSchema,
@@ -60,9 +61,10 @@ export async function POST(request: Request) {
     );
 
     const payload = vocabularyResponseSchema.parse(parseJson(text));
+    const words = shuffleVocabularyWords(payload.words, sessionDate);
 
     return NextResponse.json({
-      words: payload.words,
+      words,
       geminiUsage: usage,
     });
   } catch (error) {

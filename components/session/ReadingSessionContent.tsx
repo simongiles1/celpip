@@ -114,6 +114,7 @@ export function ReadingSessionContent({
     GeminiCostBreakdown | undefined
   >(baseSet?.geminiUsage);
   const [gradeUsage, setGradeUsage] = useState<GeminiCostBreakdown | undefined>();
+  const [chatUsage, setChatUsage] = useState<GeminiCostBreakdown | undefined>();
   const [sessionFinished, setSessionFinished] = useState(
     event.status === "completed",
   );
@@ -174,8 +175,10 @@ export function ReadingSessionContent({
   const hasAnyGradedPassage = gradedPassageNumbers.size > 0;
 
   useEffect(() => {
-    onUsageChange(combineGeminiUsage(geminiModel, generateUsage, gradeUsage));
-  }, [generateUsage, gradeUsage, geminiModel, onUsageChange]);
+    onUsageChange(
+      combineGeminiUsage(geminiModel, generateUsage, gradeUsage, chatUsage),
+    );
+  }, [generateUsage, gradeUsage, chatUsage, geminiModel, onUsageChange]);
 
   useEffect(() => {
     const hydrated: Record<number, Record<string, number>> = {};
@@ -644,6 +647,12 @@ export function ReadingSessionContent({
         suggestedClbBand={suggestedClbBand}
         activePassageClbBand={activeSet.passageTargetClbBand}
         onQuestionFocus={handleQuestionFocus}
+        passageEventId={activePassageEventId}
+        onReadingChatUsage={(usage) =>
+          setChatUsage((prev) =>
+            combineGeminiUsage(geminiModel, prev, usage) ?? usage,
+          )
+        }
       />
       {hasAnyGradedPassage && !sessionFinished && (
         <div className="mt-3 shrink-0">

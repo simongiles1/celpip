@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSelectedEvent, useStudyStore } from "@/hooks/useStudyStore";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import type { VocabularyProgress, VocabularyWord } from "@/lib/types";
+import { prepareVocabularyWordsForPractice } from "@/lib/vocabulary-progress";
 import { hasValidVocabularyPractice } from "@/lib/vocabulary-validation";
 
 function VocabularyModalContent({
@@ -41,8 +42,12 @@ function VocabularyModalContent({
   );
 
   const cached = getGeneratedForEvent(eventId);
-  const [words, setWords] = useState<VocabularyWord[]>(
-    cached?.vocabularyWords ?? [],
+  const [words, setWords] = useState<VocabularyWord[]>(() =>
+    prepareVocabularyWordsForPractice(
+      cached?.vocabularyWords ?? [],
+      eventId,
+      cached?.vocabularyProgress,
+    ),
   );
   const [loading, setLoading] = useState(!cached?.vocabularyWords?.length);
   const [error, setError] = useState<string | null>(null);

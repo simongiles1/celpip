@@ -106,6 +106,16 @@ export interface UserSkillProfile {
   observations: SkillObservation[];
   conceptScores: UserConceptScore[];
   discoveredConcepts: ConceptDefinition[];
+  /**
+   * @deprecated Use writingConceptStats. Migrated on hydrate.
+   * Exercise-level counts only (max 1 per concept per writing exercise).
+   */
+  writingConceptFrequency?: Record<string, number>;
+  /** Per-concept writing mistake counts: exercises flagged vs total tagged instances. */
+  writingConceptStats?: Record<
+    string,
+    { exerciseCount: number; instanceCount: number }
+  >;
 }
 
 export interface ConceptChatMessage {
@@ -127,6 +137,9 @@ export interface ConceptCustomization {
 export interface ConceptDrillItem {
   prompt: string;
   hint?: string;
+  /** When set with correctAnswerIndex, the exercise is multiple-choice (4 options). */
+  options?: string[];
+  correctAnswerIndex?: number;
 }
 
 export interface ConceptDrillResult {
@@ -135,6 +148,17 @@ export interface ConceptDrillResult {
   studentAnswer: string;
   correctAnswer: string;
   feedback: string;
+  /** Seconds spent on this exercise before moving on or submitting. */
+  timeSpentSeconds?: number;
+}
+
+export interface ConceptGradeMetadata {
+  score: { correct: number; total: number } | null;
+  drillResults?: ConceptDrillResult[];
+  writingResult?: ConceptWritingResult;
+  estimatedBand: number;
+  questionTimings?: Record<string, number>;
+  sessionDurationSeconds?: number;
 }
 
 export type CelpipReadingPart = "part_1" | "part_2" | "part_3" | "part_4";
@@ -176,6 +200,8 @@ export interface ReadingSubmissionEnvelope {
   /** Stored for mock attempts so scores can be recomputed after index repair. */
   readingQuestions?: ReadingQuestion[];
   examPrompt?: string;
+  /** Per-question tutor chat after grading (key = zero-based question index). */
+  questionChats?: Record<string, ConceptChatMessage[]>;
 }
 
 export interface ConceptWritingResult {

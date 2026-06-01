@@ -1,5 +1,10 @@
 import { CONCEPT_SEED, getSeedConcept } from "@/data/concept-seed";
+import {
+  computeWritingConceptStats,
+  writingConceptStatsEqual,
+} from "@/lib/writing-analytics";
 import type {
+  GradedSession,
   ConceptCategory,
   ConceptDefinition,
   ConceptTrend,
@@ -17,7 +22,20 @@ export function emptySkillProfile(): UserSkillProfile {
     observations: [],
     conceptScores: [],
     discoveredConcepts: [],
+    writingConceptStats: {},
   };
+}
+
+export function withWritingConceptFrequency(
+  profile: UserSkillProfile,
+  graded: GradedSession[],
+): UserSkillProfile {
+  const writingConceptStats = computeWritingConceptStats(profile, graded);
+  if (writingConceptStatsEqual(profile.writingConceptStats, writingConceptStats)) {
+    return profile;
+  }
+  const { writingConceptFrequency: _legacy, ...rest } = profile;
+  return { ...rest, writingConceptStats };
 }
 
 export function slugifyConceptId(text: string): string {

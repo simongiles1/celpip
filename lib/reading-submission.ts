@@ -5,6 +5,7 @@ import {
 } from "@/lib/reading-feedback-alignment";
 import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
 import type {
+  ConceptChatMessage,
   GradeResponse,
   ReadingGradeMetadata,
   ReadingQuestion,
@@ -44,6 +45,40 @@ export function getReadingGradeMetadata(
     return submission.gradeMetadata ?? null;
   }
   return null;
+}
+
+/** Stable empty reference for Zustand selectors (never mutate). */
+export const EMPTY_READING_QUESTION_CHAT_MESSAGES: ConceptChatMessage[] = [];
+
+export function getReadingQuestionChatMessages(
+  submission: string | Record<string, number> | ReadingSubmissionEnvelope,
+  questionIndex: number,
+): ConceptChatMessage[] {
+  if (!isReadingSubmissionEnvelope(submission)) {
+    return EMPTY_READING_QUESTION_CHAT_MESSAGES;
+  }
+  return (
+    submission.questionChats?.[String(questionIndex)] ??
+    EMPTY_READING_QUESTION_CHAT_MESSAGES
+  );
+}
+
+export function withReadingQuestionChatMessages(
+  submission: ReadingSubmissionEnvelope,
+  questionIndex: number,
+  messages: ConceptChatMessage[],
+): ReadingSubmissionEnvelope {
+  const key = String(questionIndex);
+  const nextChats = { ...(submission.questionChats ?? {}) };
+  if (messages.length === 0) {
+    delete nextChats[key];
+  } else {
+    nextChats[key] = messages;
+  }
+  return {
+    ...submission,
+    questionChats: Object.keys(nextChats).length > 0 ? nextChats : undefined,
+  };
 }
 
 export function getStoredReadingQuestions(
