@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatExamCountdown } from "@/lib/exam-timing";
+import {
+  formatExamCountdown,
+  formatStudyBlockCountdown,
+} from "@/lib/exam-timing";
 import { cn } from "@/lib/utils";
+
+interface UseExamCountdownOptions {
+  /** When true, the timer keeps ticking after zero and remaining goes negative. */
+  countOvertime?: boolean;
+}
 
 interface UseExamCountdownResult {
   remaining: number;
@@ -12,7 +20,9 @@ interface UseExamCountdownResult {
 export function useExamCountdown(
   totalSeconds: number,
   started: boolean,
+  options?: UseExamCountdownOptions,
 ): UseExamCountdownResult {
+  const countOvertime = options?.countOvertime ?? false;
   const [remaining, setRemaining] = useState(totalSeconds);
   const [expired, setExpired] = useState(false);
 
@@ -22,20 +32,28 @@ export function useExamCountdown(
   }, [totalSeconds]);
 
   useEffect(() => {
-    if (!started || expired) return;
+    if (!started) return;
 
     const intervalId = window.setInterval(() => {
       setRemaining((current) => {
-        if (current <= 1) {
-          setExpired(true);
-          return 0;
+        if (!countOvertime) {
+          if (current <= 1) {
+            setExpired(true);
+            return 0;
+          }
+          return current - 1;
         }
-        return current - 1;
+
+        const next = current - 1;
+        if (next <= 0) {
+          setExpired(true);
+        }
+        return next;
       });
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [started, expired]);
+  }, [started, countOvertime]);
 
   return { remaining, expired };
 }
@@ -45,6 +63,7 @@ interface ExamCountdownProps {
   expired: boolean;
   className?: string;
   label?: string;
+  countOvertime?: boolean;
 }
 
 function countdownStyles(remaining: number, expired: boolean) {
@@ -73,6 +92,7 @@ export function ExamCountdownDisplay({
   expired,
   className,
   label = "Time remaining",
+  countOvertime = false,
 }: ExamCountdownProps) {
   const styles = countdownStyles(remaining, expired);
 
@@ -91,7 +111,11 @@ export function ExamCountdownDisplay({
           styles.time,
         )}
       >
-        {expired ? "Time's up" : formatExamCountdown(remaining)}
+        {countOvertime
+          ? formatStudyBlockCountdown(remaining, expired)
+          : expired
+            ? "Time's up"
+            : formatExamCountdown(remaining)}
       </span>
     </div>
   );
@@ -106,6 +130,7 @@ interface ExamCountdownDualProps {
   className?: string;
   /** stacked = two rows on narrow screens; inline = compact chips for a shared toolbar row */
   layout?: "stacked" | "inline";
+  countOvertime?: boolean;
 }
 
 function DualCountdownChip({
@@ -113,11 +138,13 @@ function DualCountdownChip({
   remaining,
   expired,
   compact,
+  countOvertime = false,
 }: {
   label: string;
   remaining: number;
   expired: boolean;
   compact?: boolean;
+  countOvertime?: boolean;
 }) {
   const styles = countdownStyles(remaining, expired);
 
@@ -144,7 +171,11 @@ function DualCountdownChip({
           styles.time,
         )}
       >
-        {expired ? "Time's up" : formatExamCountdown(remaining)}
+        {countOvertime
+          ? formatStudyBlockCountdown(remaining, expired)
+          : expired
+            ? "Time's up"
+            : formatExamCountdown(remaining)}
       </span>
     </div>
   );
@@ -158,6 +189,7 @@ export function ExamCountdownDualDisplay({
   showPassage = true,
   className,
   layout = "stacked",
+  countOvertime = false,
 }: ExamCountdownDualProps) {
   const inline = layout === "inline";
 
@@ -173,6 +205,7 @@ export function ExamCountdownDualDisplay({
         remaining={sessionRemaining}
         expired={sessionExpired}
         compact={inline}
+        countOvertime={countOvertime}
       />
       {showPassage && (
         <DualCountdownChip
@@ -180,6 +213,7 @@ export function ExamCountdownDualDisplay({
           remaining={passageRemaining}
           expired={passageExpired}
           compact={inline}
+          countOvertime={countOvertime}
         />
       )}
     </div>

@@ -13,6 +13,7 @@ interface CopyForVerificationButtonProps {
   label?: string;
   copiedLabel?: string;
   ariaLabel?: string;
+  iconOnly?: boolean;
 }
 
 export function CopyForVerificationButton({
@@ -23,6 +24,7 @@ export function CopyForVerificationButton({
   label = "Copy for AI verification",
   copiedLabel = "Copied!",
   ariaLabel,
+  iconOnly = false,
 }: CopyForVerificationButtonProps) {
   const [copied, setCopied] = useState(false);
 
@@ -50,18 +52,23 @@ export function CopyForVerificationButton({
   return (
     <Button
       type="button"
-      size={size}
-      variant={variant}
-      className={cn("cursor-pointer gap-1.5", className)}
+      size={iconOnly ? "icon" : size}
+      variant={iconOnly ? "ghost" : variant}
+      className={cn(
+        "cursor-pointer",
+        iconOnly ? "h-8 w-8 shrink-0" : "gap-1.5",
+        className,
+      )}
       onClick={() => void handleCopy()}
-      aria-label={ariaLabel ?? label}
+      aria-label={ariaLabel ?? (iconOnly ? "Copy as Markdown" : label)}
+      title={iconOnly ? (ariaLabel ?? "Copy as Markdown") : undefined}
     >
       {copied ? (
         <Check className="h-4 w-4" />
       ) : (
         <ClipboardCopy className="h-4 w-4" />
       )}
-      {copied ? copiedLabel : label}
+      {!iconOnly && (copied ? copiedLabel : label)}
     </Button>
   );
 }

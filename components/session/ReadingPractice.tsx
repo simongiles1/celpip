@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ExamCountdownDualDisplay,
   useExamCountdown,
@@ -8,6 +8,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   getReadingPassageTimeLimitSeconds,
@@ -63,7 +69,6 @@ interface ReadingPracticeProps {
   currentPassageSubmitted?: boolean;
   gradeResult?: GradeResponse | null;
   defaultTab?: "instructions" | "focus" | "passage";
-  onSessionExpired?: () => void;
   /** CLB difficulty controls for the next-passage generator. */
   nextPassageClbBand?: number;
   onNextPassageClbBandChange?: (band: number) => void;
@@ -289,7 +294,6 @@ export function ReadingPractice({
   currentPassageSubmitted = false,
   gradeResult = null,
   defaultTab = "instructions",
-  onSessionExpired,
   nextPassageClbBand,
   onNextPassageClbBandChange,
   suggestedClbBand,
@@ -311,29 +315,34 @@ export function ReadingPractice({
   const {
     remaining: sessionRemaining,
     expired: sessionExpired,
-  } = useExamCountdown(sessionLimitSeconds, sessionStarted);
+  } = useExamCountdown(sessionLimitSeconds, sessionStarted, {
+    countOvertime: true,
+  });
 
   const {
     remaining: passageRemaining,
     expired: passageExpired,
-  } = useExamCountdown(passageLimitSeconds, passageStarted);
+  } = useExamCountdown(passageLimitSeconds, passageStarted, {
+    countOvertime: true,
+  });
 
+  const [sessionTimeUpOpen, setSessionTimeUpOpen] = useState(false);
   const sessionExpiredNotified = useRef(false);
   useEffect(() => {
     if (sessionExpired && !sessionExpiredNotified.current) {
       sessionExpiredNotified.current = true;
-      onSessionExpired?.();
+      setSessionTimeUpOpen(true);
     }
     if (!sessionExpired) {
       sessionExpiredNotified.current = false;
     }
-  }, [sessionExpired, onSessionExpired]);
+  }, [sessionExpired]);
 
   const allAnswered =
     questions.length > 0 &&
     questions.every((_, i) => answers[String(i)] !== undefined);
 
-  const inputLocked = readOnly || passageExpired || sessionExpired;
+  const inputLocked = readOnly;
   const readingResultsByIndex = new Map(
     gradeResult?.readingResults?.map((result) => [result.index, result]) ?? [],
   );
@@ -346,7 +355,27 @@ export function ReadingPractice({
     : null;
 
   return (
-    <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col">
+    <>
+      <Dialog open={sessionTimeUpOpen} onOpenChange={setSessionTimeUpOpen} size="auto" panelClassName="max-w-md">
+        <DialogHeader onClose={() => setSessionTimeUpOpen(false)}>
+          <DialogTitle>Time&apos;s up</DialogTitle>
+        </DialogHeader>
+        <DialogContent compact>
+          <p className="text-sm text-gray-600">
+            Your suggested study block has ended. Keep working — the timer will
+            keep running and your time will be saved when you submit.
+          </p>
+          <Button
+            type="button"
+            className="mt-4 w-full sm:w-auto"
+            onClick={() => setSessionTimeUpOpen(false)}
+          >
+            Continue
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col">
       <TabsList className="grid h-auto w-full shrink-0 grid-cols-3 gap-1">
         <TabsTrigger value="instructions" className="text-xs sm:text-sm">
           Instructions
@@ -360,20 +389,37 @@ export function ReadingPractice({
       </TabsList>
 
       <TabsContent value="instructions" className={tabPanelClass}>
-        <div className={scrollPanelClass}>
-          <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
-            {instructions}
-          </MarkdownContent>
-          {example.trim() && (
-            <div className="mt-6 border-t border-gray-200 pt-4">
-              <h3 className="text-sm font-semibold text-gray-900">
-                Strategy walkthrough
-              </h3>
-              <MarkdownContent className="prose prose-sm mt-2 max-w-none [&>:first-child]:mt-0">
-                {example}
-              </MarkdownContent>
-            </div>
-          )}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200">
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2">
+            <h3 className="text-sm font-semibold text-gray-900">Instructions</h3>
+            <CopyForVerificationButton
+              iconOnly
+              getText={() => instructions}
+              ariaLabel="Copy instructions as Markdown"
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
+              {instructions}
+            </MarkdownContent>
+            {example.trim() && (
+              <div className="mt-6 border-t border-gray-200 pt-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Strategy walkthrough
+                  </h3>
+                  <CopyForVerificationButton
+                    iconOnly
+                    getText={() => example}
+                    ariaLabel="Copy strategy walkthrough as Markdown"
+                  />
+                </div>
+                <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
+                  {example}
+                </MarkdownContent>
+              </div>
+            )}
+          </div>
         </div>
       </TabsContent>
 
@@ -428,6 +474,7 @@ export function ReadingPractice({
                   passageRemaining={passageRemaining}
                   passageExpired={passageExpired}
                   showPassage={passageStarted}
+                  countOvertime
                 />
               )}
               {passages.map((passage) => (
@@ -458,9 +505,7 @@ export function ReadingPractice({
                     size="sm"
                     variant="outline"
                     onClick={onNewPassage}
-                    disabled={
-                      sessionFinished || generatingPassage || sessionExpired
-                    }
+                    disabled={sessionFinished || generatingPassage}
                   >
                     {generatingPassage ? "Generating..." : "New passage"}
                   </Button>
@@ -479,8 +524,9 @@ export function ReadingPractice({
             </div>
 
             {sessionExpired && !isGraded && (
-              <p className="shrink-0 text-xs text-red-600">
-                Session time is up. Finish the session to save your progress.
+              <p className="shrink-0 text-xs text-amber-600">
+                Time is up. You can still answer questions and submit this
+                passage.
               </p>
             )}
 
@@ -499,7 +545,7 @@ export function ReadingPractice({
                   type="button"
                   size="lg"
                   onClick={onStartPassage}
-                  disabled={sessionFinished || sessionExpired}
+                  disabled={sessionFinished}
                 >
                   Start passage
                 </Button>
@@ -560,9 +606,16 @@ export function ReadingPractice({
 
                 <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-2">
                   <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200">
-                    <h3 className="shrink-0 border-b border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900">
-                      Practice passage
-                    </h3>
+                    <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2">
+                      <h3 className="text-sm font-semibold text-gray-900">
+                        Practice passage
+                      </h3>
+                      <CopyForVerificationButton
+                        iconOnly
+                        getText={() => examPrompt}
+                        ariaLabel="Copy passage as Markdown"
+                      />
+                    </div>
                     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
                       <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
                         {examPrompt}
@@ -702,5 +755,6 @@ export function ReadingPractice({
         )}
       </TabsContent>
     </Tabs>
+    </>
   );
 }

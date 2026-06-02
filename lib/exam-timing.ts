@@ -27,6 +27,18 @@ export function formatExamCountdown(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+/** Formats countdown or overtime when a study-block timer runs past zero. */
+export function formatStudyBlockCountdown(
+  remainingSeconds: number,
+  expired: boolean,
+): string {
+  if (!expired) return formatExamCountdown(remainingSeconds);
+  if (remainingSeconds < 0) {
+    return `+${formatExamCountdown(-remainingSeconds)}`;
+  }
+  return "Time's up";
+}
+
 export function getWritingExamTimeLimitLabel(practiceType: string): string {
   const totalSeconds = getWritingExamTimeLimitSeconds(practiceType);
   const minutes = Math.floor(totalSeconds / 60);

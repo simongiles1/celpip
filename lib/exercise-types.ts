@@ -83,12 +83,20 @@ export function getThemedWritingStartCopy(options: {
   };
 }
 
+export const MARKDOWN_CONTENT_RULES = `MARKDOWN FORMATTING (required for instructions, example, examPrompt, and any other student-facing string):
+- Use GitHub-Flavored Markdown ONLY. Never output HTML tags (<p>, <h3>, <table>, <ol>, <strong>, etc.).
+- Headings: use ## and ###. Emphasis: **bold** and *italic*. Lists: use - or numbered lists (1.).
+- Tables: one row per line with | column | separators |; add a | --- | separator row immediately after the header row. Never collapse an entire table onto one line.
+- Reading Part 2 schedules/diagrams: use a markdown table or structured bullet list — not HTML tables or ASCII art.`;
+
 export const THEMED_GENERATION_PREAMBLE = `IMPORTANT — EXERCISE TYPE: THEMED PRACTICE (skill-focused, exam-format).
 This module is part of the student's personal study schedule. The student has only weeks before their CELPIP, so practice must resemble real exam items.
 - Match the specified CELPIP Part / Task structure, register, length, and tone EXACTLY (same as a practice test would).
 - The "lighter" aspect is question count only: use 5-7 reading questions per passage instead of the official 8-11, so the student can attempt multiple passages with feedback in one session.
 - Bias the question-type mix toward the day's target skill (see Question-mix bias below) while keeping the passage exam-realistic.
-- Distractors, vocabulary, and difficulty must remain CELPIP-grade — do not simplify.`;
+- Distractors, vocabulary, and difficulty must remain CELPIP-grade — do not simplify.
+
+${MARKDOWN_CONTENT_RULES}`;
 
 export const CELPIP_MOCK_GENERATION_PREAMBLE = `IMPORTANT — EXERCISE TYPE: CELPIP PRACTICE TEST (strict format).
 This is an official-style CELPIP practice test item, NOT a themed skill drill. Apply these constraints:
@@ -97,4 +105,6 @@ This is an official-style CELPIP practice test item, NOT a themed skill drill. A
 - NO scaffolding: do not provide vocabulary glosses, strategy hints, "look for X" prompts, or skill-focused framing.
 - Distractors must be plausible, traceable to the passage, and require careful elimination (especially at high CLB).
 - Topics should reflect realistic CELPIP themes (workplace email, community notice, opinion column, etc.).
-- The student is being measured under exam conditions; do not simplify the test.`;
+- The student is being measured under exam conditions; do not simplify the test.
+
+${MARKDOWN_CONTENT_RULES}`;

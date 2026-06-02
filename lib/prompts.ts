@@ -338,9 +338,9 @@ Target skill / theme (primary): ${focusTarget}
 Format reference (secondary): ${practiceType}${readingPartHint}${clbHint}${questionMixBias}${writingTaskHint}
 ${adaptiveNote}
 Provide a JSON response with these exact keys:
-1. "instructions": Markdown tutorial tied to today's target skill (${focusTarget}), not generic test-day advice.
-2. "example": A worked example demonstrating the target skill at CLB 11/12 level.
-3. "examPrompt": The practice prompt${isReadingFocus ? " (reading passage in the CELPIP Part format above, full length and complexity)" : " (writing scenario)"}.
+1. "instructions": Markdown tutorial tied to today's target skill (${focusTarget}), not generic test-day advice. Use GFM markdown only — no HTML.
+2. "example": A worked example demonstrating the target skill at CLB 11/12 level (GFM markdown only).
+3. "examPrompt": The practice prompt${isReadingFocus ? " (reading passage in the CELPIP Part format above, full length and complexity; GFM markdown only — use markdown tables for schedules/diagrams, never HTML)" : " (writing scenario; GFM markdown only)"}.
 4. "readingQuestions": An array of objects containing "question", "options" (array of 4 strings), "correctAnswerIndex"${isReadingFocus ? `, "celpipPart", "questionType", and "targetClbBand"` : ""} ${readingQuestionsSpec}
 ${isReadingFocus ? `6. "passageCelpipPart": one of part_1/part_2/part_3/part_4 reflecting the overall passage format.\n7. "passageTargetClbBand": integer 6-12 reflecting the overall passage difficulty.\n` : ""}
 Return ONLY valid JSON, no markdown fences.`;
@@ -387,7 +387,7 @@ Target skill / theme (primary): ${focusTarget}
 Format reference (secondary): ${practiceType}${partHint}${clbHint}${questionMixBias}${setNote}${adaptiveNote}
 
 Provide a JSON response with these exact keys:
-1. "examPrompt": A reading passage matching the CELPIP Part format above (full length, full complexity, exam-realistic distractors).
+1. "examPrompt": A reading passage matching the CELPIP Part format above (full length, full complexity, exam-realistic distractors; GFM markdown only — use markdown tables for schedules/diagrams, never HTML).
 2. "readingQuestions": An array of ${questionCount} objects, each with "question", "options" (array of exactly 4 strings), "correctAnswerIndex" (0-3), "celpipPart", "questionType", and "targetClbBand" (integer 6-12).
 3. ${readingTaggingBlock()}
 4. "passageCelpipPart": one of part_1/part_2/part_3/part_4 reflecting the overall passage format.
@@ -438,8 +438,8 @@ Concept: ${conceptLabel}
 Description: ${conceptDescription}${setNote}${conceptConstraints}${mcNote}
 
 Provide a JSON response with these exact keys:
-1. "instructions": Markdown tutorial explaining the rule with 2-3 clear examples and counter-examples (e.g. when NOT to use a word).
-2. "example": A worked example showing correct usage.
+1. "instructions": Markdown tutorial explaining the rule with 2-3 clear examples and counter-examples (e.g. when NOT to use a word). Use GFM markdown only — no HTML.
+2. "example": A worked example showing correct usage (GFM markdown only).
 3. ${drillItemsSpec}
 
 Return ONLY valid JSON, no markdown fences.`;
@@ -854,7 +854,7 @@ ${partBlurb}${clbHint}
 This is a strict CELPIP practice test item — match official length, register, structure, and distractor design exactly. No scaffolding, no vocabulary glosses, no skill hints.
 
 Provide a JSON response with these exact keys:
-1. "examPrompt": The reading passage in CELPIP ${part} format (full length, full complexity).
+1. "examPrompt": The reading passage in CELPIP ${part} format (full length, full complexity; GFM markdown only — use markdown tables for schedules/diagrams, never HTML).
 2. "readingQuestions": An array of exactly ${questionCount} objects, each with "question", "options" (4 strings), "correctAnswerIndex" (0-3), "celpipPart" = "${part}", "questionType" (one of ${READING_QUESTION_TYPE_IDS.join("/")}), and "targetClbBand" (integer 6-12).
 3. "passageCelpipPart": "${part}".
 4. "passageTargetClbBand": integer 6-12.

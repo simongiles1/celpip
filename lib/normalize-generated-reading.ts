@@ -156,6 +156,14 @@ export function normalizeGeneratedReadingPayload(parsed: unknown): unknown {
     next.examPrompt = normalizeExamPromptMarkdown(next.examPrompt);
   }
 
+  if (typeof next.instructions === "string") {
+    next.instructions = normalizeExamPromptMarkdown(next.instructions);
+  }
+
+  if (typeof next.example === "string") {
+    next.example = normalizeExamPromptMarkdown(next.example);
+  }
+
   const passageCelpipPart = normalizeCelpipPart(next.passageCelpipPart);
   if (passageCelpipPart) next.passageCelpipPart = passageCelpipPart;
   else delete next.passageCelpipPart;

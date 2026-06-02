@@ -130,6 +130,7 @@ export function ReadingSessionContent({
     questionIndex: number;
     enteredAt: number;
   } | null>(null);
+  const passageStartedAtRef = useRef<Record<number, number>>({});
 
   useEffect(() => {
     setNextPassageClb((current) =>
@@ -333,6 +334,7 @@ export function ReadingSessionContent({
         setActivePassageNumber(setNumber);
         setAnswersByPassage((prev) => ({ ...prev, [setNumber]: {} }));
         setPassageStarted((prev) => ({ ...prev, [setNumber]: false }));
+        delete passageStartedAtRef.current[setNumber];
       } catch (err) {
         setError(err instanceof Error ? err.message : "Generation failed");
       } finally {
@@ -413,7 +415,24 @@ export function ReadingSessionContent({
     const questions = passageSet
       ? getReadingQuestionsForDisplay(passageSet, answers)
       : [];
-    const timings = questionTimings[setNumber];
+    const passageStartedAt = passageStartedAtRef.current[setNumber];
+    const passageDurationSeconds =
+      passageStartedAt != null
+        ? Math.max(0, Math.round((Date.now() - passageStartedAt) / 1000))
+        : undefined;
+    let timings = questionTimings[setNumber];
+    if (
+      passageDurationSeconds != null &&
+      questions.length > 0 &&
+      (!timings || Object.keys(timings).length === 0)
+    ) {
+      const perQuestion = Math.round(
+        passageDurationSeconds / questions.length,
+      );
+      timings = Object.fromEntries(
+        questions.map((_, index) => [String(index), perQuestion]),
+      );
+    }
     const submission = buildReadingSubmissionEnvelope(
       answers,
       questions,
@@ -422,6 +441,7 @@ export function ReadingSessionContent({
         questionTimings: timings,
         passageCelpipPart: passageSet?.passageCelpipPart,
         passageTargetClbBand: passageSet?.passageTargetClbBand,
+        passageDurationSeconds,
       },
     );
     const enrichedResult: GradeResponse = {
@@ -487,13 +507,6 @@ export function ReadingSessionContent({
       setSessionFinished(true);
     }
     setSelectedEventId(null);
-  };
-
-  const handleSessionExpired = () => {
-    if (hasAnyGradedPassage && !sessionFinished) {
-      markEventCompleted(event.id);
-      setSessionFinished(true);
-    }
   };
 
   const handleNewPassage = () => {
@@ -618,12 +631,13 @@ export function ReadingSessionContent({
         sessionStarted={sessionStarted}
         onStartSession={() => setSessionStarted(true)}
         passageStarted={Boolean(passageStarted[activePassageNumber])}
-        onStartPassage={() =>
+        onStartPassage={() => {
+          passageStartedAtRef.current[activePassageNumber] ??= Date.now();
           setPassageStarted((prev) => ({
             ...prev,
             [activePassageNumber]: true,
-          }))
-        }
+          }));
+        }}
         answers={activeAnswers}
         onAnswersChange={(answers) => {
           setAnswersByPassage((prev) => ({
@@ -641,7 +655,6 @@ export function ReadingSessionContent({
         currentPassageSubmitted={currentPassageSubmitted}
         gradeResult={activeGradeResult}
         defaultTab={hasSavedProgress ? "passage" : "instructions"}
-        onSessionExpired={handleSessionExpired}
         nextPassageClbBand={nextPassageClb}
         onNextPassageClbBandChange={handleNextPassageClbChange}
         suggestedClbBand={suggestedClbBand}

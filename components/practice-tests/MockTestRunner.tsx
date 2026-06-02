@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import ReactMarkdown from "react-markdown";
+import { MarkdownContent } from "@/components/ui/markdown";
 import {
   ExamCountdownDisplay,
   useExamCountdown,
@@ -639,10 +639,19 @@ function SegmentBody({
     const inRange = words >= TARGET_MIN && words <= TARGET_MAX;
     return (
       <div className="flex flex-col gap-4">
-        <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 px-4 py-3">
-          <h3 className="mb-2 text-sm font-semibold text-gray-900">Prompt</h3>
-          <div className="prose prose-sm max-w-none [&>:first-child]:mt-0">
-            <ReactMarkdown>{state.examPrompt ?? ""}</ReactMarkdown>
+        <div className="flex max-h-56 flex-col overflow-hidden rounded-lg border border-gray-200">
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2">
+            <h3 className="text-sm font-semibold text-gray-900">Prompt</h3>
+            <CopyForVerificationButton
+              iconOnly
+              getText={() => state.examPrompt ?? ""}
+              ariaLabel="Copy prompt as Markdown"
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
+              {state.examPrompt ?? ""}
+            </MarkdownContent>
           </div>
         </div>
         <div className="flex flex-col gap-2">
@@ -700,13 +709,18 @@ function SegmentBody({
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-lg border border-gray-200">
-          <h3 className="shrink-0 border-b border-gray-200 px-4 py-2 text-sm font-semibold text-gray-900">
-            Passage
-          </h3>
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-2">
+            <h3 className="text-sm font-semibold text-gray-900">Passage</h3>
+            <CopyForVerificationButton
+              iconOnly
+              getText={() => state.examPrompt ?? ""}
+              ariaLabel="Copy passage as Markdown"
+            />
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-            <div className="prose prose-sm max-w-none [&>:first-child]:mt-0">
-              <ReactMarkdown>{state.examPrompt ?? ""}</ReactMarkdown>
-            </div>
+            <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
+              {state.examPrompt ?? ""}
+            </MarkdownContent>
           </div>
         </div>
         <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-lg border border-gray-200">
@@ -837,7 +851,9 @@ function SegmentGradedView({
             Overall feedback
           </h4>
           <div className="prose prose-sm mt-1 max-w-none [&>:first-child]:mt-0">
-            <ReactMarkdown>{grade.overallFeedback}</ReactMarkdown>
+            <MarkdownContent className="prose prose-sm max-w-none [&>:first-child]:mt-0">
+              {grade.overallFeedback}
+            </MarkdownContent>
           </div>
         </div>
       )}
