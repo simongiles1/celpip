@@ -11,10 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConceptPractice } from "@/components/session/ConceptPractice";
-import {
-  ConceptChatButton,
-  ConceptChatPanel,
-} from "@/components/session/ConceptChatPanel";
 import { GeminiCostPopover } from "@/components/session/GeminiCostPopover";
 import { useStudyStore } from "@/hooks/useStudyStore";
 import { useConceptChat } from "@/hooks/useConceptChat";
@@ -108,21 +104,25 @@ export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalP
 
   const drillItems = content?.conceptDrillItems ?? [];
 
+  const instructionsChat = useConceptChat({
+    concept,
+    chatContext: "instructions",
+    onUsage: setChatUsage,
+  });
+
+  const exercisesChat = useConceptChat({
+    concept,
+    chatContext: "exercises",
+    drillItems,
+    gradeResult,
+    onUsage: setChatUsage,
+  });
+
   const {
-    chatOpen,
-    setChatOpen,
-    sending: chatSending,
-    chatError,
-    messages: chatMessages,
-    sendMessage,
     conceptDocument,
     conceptDescription,
     generateOverrides,
-  } = useConceptChat({
-    concept,
-    drillItems,
-    onUsage: setChatUsage,
-  });
+  } = instructionsChat;
 
   useEffect(() => {
     setSessionUsage(
@@ -304,7 +304,8 @@ export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalP
       setGradeUsage(undefined);
       setChatUsage(undefined);
       setActiveSetNumber(1);
-      setChatOpen(false);
+      instructionsChat.setChatOpen(false);
+      exercisesChat.setChatOpen(false);
       return;
     }
 
@@ -381,6 +382,8 @@ export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalP
             drillItems,
             drillResponses,
             model: geminiModel,
+            gradingFeedbackConstraints:
+              exercisesChat.gradingFeedbackConstraints,
           }),
         ),
       });
@@ -475,18 +478,17 @@ export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalP
   const open = Boolean(conceptId && concept);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      slideFromBottom
+    >
       {concept && (
         <div className="relative flex min-h-0 flex-1 flex-col">
           <DialogHeader
             onClose={onClose}
             className="px-6 py-3"
-            trailing={
-              <>
-                <ConceptChatButton onClick={() => setChatOpen(true)} />
-                <GeminiCostPopover usage={sessionUsage} />
-              </>
-            }
+            trailing={<GeminiCostPopover usage={sessionUsage} />}
           >
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -534,24 +536,40 @@ export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalP
                 gradeResult={gradeResult}
                 initialQuestionTimings={questionTimings}
                 initialSessionDurationSeconds={initialSessionDurationSeconds}
+                instructionsChat={{
+                  open: instructionsChat.chatOpen,
+                  onOpenChange: instructionsChat.setChatOpen,
+                  messages: instructionsChat.messages,
+                  onSend: instructionsChat.sendMessage,
+                  sending: instructionsChat.sending,
+                  conceptLabel: concept.label,
+                  chatContext: "instructions",
+                }}
+                exercisesChat={{
+                  open: exercisesChat.chatOpen,
+                  onOpenChange: exercisesChat.setChatOpen,
+                  messages: exercisesChat.messages,
+                  onSend: exercisesChat.sendMessage,
+                  sending: exercisesChat.sending,
+                  conceptLabel: concept.label,
+                  chatContext: "exercises",
+                }}
               />
             ) : null}
             {error && content && (
               <p className="mt-3 text-sm text-red-600">{error}</p>
             )}
-            {chatError && (
-              <p className="mt-3 text-sm text-red-600">{chatError}</p>
+            {instructionsChat.chatError && (
+              <p className="mt-3 text-sm text-red-600">
+                {instructionsChat.chatError}
+              </p>
+            )}
+            {exercisesChat.chatError && (
+              <p className="mt-3 text-sm text-red-600">
+                {exercisesChat.chatError}
+              </p>
             )}
           </DialogContent>
-
-          <ConceptChatPanel
-            open={chatOpen}
-            onOpenChange={setChatOpen}
-            conceptLabel={concept.label}
-            messages={chatMessages}
-            onSend={sendMessage}
-            sending={chatSending}
-          />
         </div>
       )}
     </Dialog>

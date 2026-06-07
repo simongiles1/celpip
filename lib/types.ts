@@ -125,12 +125,18 @@ export interface ConceptChatMessage {
   changesSummary?: string;
 }
 
+export type ConceptChatContext = "instructions" | "exercises";
+
 export interface ConceptCustomization {
   conceptId: string;
   instructionMarkdown?: string;
   drillConstraints?: string;
+  gradingFeedbackConstraints?: string;
   descriptionOverride?: string;
-  chatMessages: ConceptChatMessage[];
+  /** @deprecated Migrated to instructionChatMessages */
+  chatMessages?: ConceptChatMessage[];
+  instructionChatMessages?: ConceptChatMessage[];
+  exerciseChatMessages?: ConceptChatMessage[];
   updatedAt: string;
 }
 

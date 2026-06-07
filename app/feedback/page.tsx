@@ -426,14 +426,19 @@ export default function FeedbackPage() {
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => setType(option.id)}
+                    onClick={() => {
+                      if (type !== option.id) setType(option.id);
+                    }}
                     className={cn(
                       "inline-flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors",
                       type === option.id
-                        ? option.id === "bug"
-                          ? "border-red-300 bg-red-50 text-red-800"
-                          : "border-amber-300 bg-amber-50 text-amber-900"
-                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
+                        ? cn(
+                            "cursor-default",
+                            option.id === "bug"
+                              ? "border-red-300 bg-red-50 text-red-800"
+                              : "border-amber-300 bg-amber-50 text-amber-900",
+                          )
+                        : "cursor-pointer border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
                     )}
                   >
                     <option.icon className="h-4 w-4" />
@@ -512,7 +517,7 @@ export default function FeedbackPage() {
                   "focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20",
                   screenshotDataUrls.length >= MAX_SCREENSHOTS
                     ? "cursor-not-allowed border-gray-200 bg-gray-50 opacity-60"
-                    : "border-gray-300 bg-white hover:border-gray-400",
+                    : "cursor-pointer border-gray-300 bg-white hover:border-gray-400",
                 )}
               >
                 <div className="flex flex-col items-center gap-2 py-4 text-center text-sm text-gray-500">

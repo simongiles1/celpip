@@ -7,13 +7,32 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ConceptChatButton,
+  ConceptChatPanel,
+} from "@/components/session/ConceptChatPanel";
 import { ConceptPracticeHistory } from "@/components/session/ConceptPracticeHistory";
 import { formatConceptDuration } from "@/lib/concept-analytics";
 import {
   isMultipleChoiceDrillItem,
 } from "@/lib/concept-drill-mc";
 import { getConceptSetScore } from "@/lib/concept-question-sets";
-import type { ConceptDrillItem, GradeResponse } from "@/lib/types";
+import type {
+  ConceptChatContext,
+  ConceptChatMessage,
+  ConceptDrillItem,
+  GradeResponse,
+} from "@/lib/types";
+
+export interface ConceptTabChatProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  messages: ConceptChatMessage[];
+  onSend: (message: string) => Promise<void>;
+  sending: boolean;
+  conceptLabel: string;
+  chatContext: ConceptChatContext;
+}
 
 interface QuestionSetOption {
   setNumber: number;
@@ -40,6 +59,8 @@ interface ConceptPracticeProps {
   gradeResult?: GradeResponse | null;
   initialQuestionTimings?: Record<string, number>;
   initialSessionDurationSeconds?: number | null;
+  instructionsChat?: ConceptTabChatProps;
+  exercisesChat?: ConceptTabChatProps;
 }
 
 function DrillResultBadge({ isCorrect }: { isCorrect: boolean }) {
@@ -157,7 +178,10 @@ export function ConceptPractice({
   gradeResult,
   initialQuestionTimings = {},
   initialSessionDurationSeconds = null,
+  instructionsChat,
+  exercisesChat,
 }: ConceptPracticeProps) {
+  const [activeTab, setActiveTab] = useState("instructions");
   const allComplete = drillItems.every((item, index) =>
     isDrillResponseComplete(item, drillResponses[index]),
   );
@@ -332,8 +356,34 @@ export function ConceptPractice({
 
   const showHistoryTab = Boolean(conceptId);
 
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    instructionsChat?.onOpenChange(false);
+    exercisesChat?.onOpenChange(false);
+  };
+
+  const renderChatPanel = (chat?: ConceptTabChatProps) => {
+    if (!chat) return null;
+
+    return (
+      <ConceptChatPanel
+        open={chat.open}
+        onOpenChange={chat.onOpenChange}
+        conceptLabel={chat.conceptLabel}
+        chatContext={chat.chatContext}
+        messages={chat.messages}
+        onSend={chat.onSend}
+        sending={chat.sending}
+      />
+    );
+  };
+
   return (
-    <Tabs defaultValue="instructions" className="flex min-h-0 flex-1 flex-col">
+    <Tabs
+      value={activeTab}
+      onValueChange={handleTabChange}
+      className="flex min-h-0 flex-1 flex-col"
+    >
       <TabsList
         className={`grid h-auto w-full shrink-0 gap-1 ${showHistoryTab ? "grid-cols-3" : "grid-cols-2"}`}
       >
@@ -351,10 +401,21 @@ export function ConceptPractice({
       </TabsList>
 
       <TabsContent value="instructions" className={tabPanelClass}>
-        <div className={scrollPanelClass}>
-          <div className="prose prose-sm max-w-none [&>:first-child]:mt-0">
-            <MarkdownContent>{document}</MarkdownContent>
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className={`relative ${scrollPanelClass}`}>
+            {instructionsChat && (
+              <div className="absolute right-2 top-2 z-10">
+                <ConceptChatButton
+                  onClick={() => instructionsChat.onOpenChange(true)}
+                  className="bg-white/90 shadow-sm hover:bg-white"
+                />
+              </div>
+            )}
+            <div className="prose prose-sm max-w-none pr-10 [&>:first-child]:mt-0">
+              <MarkdownContent>{document}</MarkdownContent>
+            </div>
           </div>
+          {renderChatPanel(instructionsChat)}
         </div>
       </TabsContent>
 
@@ -367,30 +428,42 @@ export function ConceptPractice({
       )}
 
       <TabsContent value="exercises" className={tabPanelClass}>
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+          {renderChatPanel(exercisesChat)}
           <div className="shrink-0 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {questionSets.map((set) => (
-                <Button
-                  key={set.setNumber}
-                  type="button"
-                  size="sm"
-                  variant={set.isActive ? "default" : "outline"}
-                  onClick={() => onSelectQuestionSet(set.setNumber)}
-                >
-                  {set.label}
-                </Button>
-              ))}
-              {allowNewQuestionSets && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={onNewQuestionSet}
-                  disabled={generatingNewSet}
-                >
-                  {generatingNewSet ? "Generating..." : "New question set"}
-                </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {questionSets.map((set) => (
+                  <Button
+                    key={set.setNumber}
+                    type="button"
+                    size="sm"
+                    variant={set.isActive ? "default" : "outline"}
+                    className={set.isActive ? "cursor-default" : undefined}
+                    onClick={() => {
+                      if (!set.isActive) onSelectQuestionSet(set.setNumber);
+                    }}
+                  >
+                    {set.label}
+                  </Button>
+                ))}
+                {allowNewQuestionSets && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={onNewQuestionSet}
+                    disabled={generatingNewSet}
+                  >
+                    {generatingNewSet ? "Generating..." : "New question set"}
+                  </Button>
+                )}
+              </div>
+              {exercisesChat && (
+                <ConceptChatButton
+                  onClick={() => exercisesChat.onOpenChange(true)}
+                  className="shrink-0"
+                />
               )}
             </div>
 

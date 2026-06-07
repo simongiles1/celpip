@@ -31,6 +31,7 @@ import {
 } from "@/lib/reading-submission";
 import type {
   AppSettings,
+  ConceptChatContext,
   ConceptChatMessage,
   ConceptCustomization,
   ConceptDefinition,
@@ -98,12 +99,16 @@ interface StudyStore {
   reconcileConceptInjections: () => void;
   applyConceptChatUpdates: (
     conceptId: string,
+    chatContext: ConceptChatContext,
     userMessage: ConceptChatMessage,
     assistantMessage: ConceptChatMessage,
     updates?: Partial<
       Pick<
         ConceptCustomization,
-        "instructionMarkdown" | "drillConstraints" | "descriptionOverride"
+        | "instructionMarkdown"
+        | "drillConstraints"
+        | "gradingFeedbackConstraints"
+        | "descriptionOverride"
       >
     >,
   ) => void;
@@ -486,17 +491,27 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     }
   },
 
-  applyConceptChatUpdates: (conceptId, userMessage, assistantMessage, updates) => {
+  applyConceptChatUpdates: (
+    conceptId,
+    chatContext,
+    userMessage,
+    assistantMessage,
+    updates,
+  ) => {
     const { conceptCustomizations } = get();
     const existing = conceptCustomizations.find((c) => c.conceptId === conceptId);
-    const chatMessages = [
-      ...(existing?.chatMessages ?? []),
-      userMessage,
-      assistantMessage,
-    ];
+    const messageKey =
+      chatContext === "instructions"
+        ? "instructionChatMessages"
+        : "exerciseChatMessages";
+    const priorMessages =
+      chatContext === "instructions"
+        ? (existing?.instructionChatMessages ?? existing?.chatMessages ?? [])
+        : (existing?.exerciseChatMessages ?? []);
+    const nextMessages = [...priorMessages, userMessage, assistantMessage];
     const next = upsertConceptCustomization(conceptCustomizations, conceptId, {
       ...updates,
-      chatMessages,
+      [messageKey]: nextMessages,
     });
     persistConceptCustomizations(next);
     set({ conceptCustomizations: next });

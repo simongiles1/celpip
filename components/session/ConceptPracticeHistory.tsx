@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useStudyStore } from "@/hooks/useStudyStore";
 import {
   formatConceptDuration,
@@ -42,8 +43,10 @@ function HistoryViewToggle({
         type="button"
         size="sm"
         variant={view === "graph" ? "default" : "ghost"}
-        className="h-7 px-3 text-xs"
-        onClick={() => onChange("graph")}
+        className={cn("h-7 px-3 text-xs", view === "graph" && "cursor-default")}
+        onClick={() => {
+          if (view !== "graph") onChange("graph");
+        }}
       >
         Graph
       </Button>
@@ -51,8 +54,10 @@ function HistoryViewToggle({
         type="button"
         size="sm"
         variant={view === "list" ? "default" : "ghost"}
-        className="h-7 px-3 text-xs"
-        onClick={() => onChange("list")}
+        className={cn("h-7 px-3 text-xs", view === "list" && "cursor-default")}
+        onClick={() => {
+          if (view !== "list") onChange("list");
+        }}
       >
         List
       </Button>

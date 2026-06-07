@@ -71,10 +71,16 @@ export function TabsTrigger({
   return (
     <button
       type="button"
-      onClick={() => ctx.setValue(value)}
+      role="tab"
+      aria-selected={active}
+      onClick={() => {
+        if (!active) ctx.setValue(value);
+      }}
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all",
-        active ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900",
+        active
+          ? "cursor-default bg-white text-gray-900 shadow-sm"
+          : "cursor-pointer text-gray-600 hover:text-gray-900",
         className,
       )}
     >

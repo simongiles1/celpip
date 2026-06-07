@@ -599,7 +599,7 @@ export function ReadingSessionContent({
         <button
           type="button"
           onClick={() => void generatePassage(1)}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-blue-600 hover:underline cursor-pointer"
         >
           Retry generation
         </button>

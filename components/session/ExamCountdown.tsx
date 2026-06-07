@@ -10,6 +10,11 @@ import { cn } from "@/lib/utils";
 interface UseExamCountdownOptions {
   /** When true, the timer keeps ticking after zero and remaining goes negative. */
   countOvertime?: boolean;
+  /**
+   * Forces a fresh countdown when this value changes (e.g. mock segment index).
+   * Needed when multiple segments share the same `totalSeconds`.
+   */
+  resetKey?: string | number;
 }
 
 interface UseExamCountdownResult {
@@ -23,13 +28,14 @@ export function useExamCountdown(
   options?: UseExamCountdownOptions,
 ): UseExamCountdownResult {
   const countOvertime = options?.countOvertime ?? false;
+  const resetKey = options?.resetKey;
   const [remaining, setRemaining] = useState(totalSeconds);
   const [expired, setExpired] = useState(false);
 
   useEffect(() => {
     setRemaining(totalSeconds);
     setExpired(false);
-  }, [totalSeconds]);
+  }, [totalSeconds, resetKey]);
 
   useEffect(() => {
     if (!started) return;

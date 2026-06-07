@@ -2,28 +2,36 @@
 
 import { useCallback, useMemo, useState } from "react";
 import {
+  getConceptChatMessages,
   getConceptCustomization,
   resolveConceptDescription,
   resolveConceptDocument,
   resolveDrillConstraints,
+  resolveGradingFeedbackConstraints,
 } from "@/lib/concept-customizations";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import type {
+  ConceptChatContext,
   ConceptChatMessage,
   ConceptDefinition,
   ConceptDrillItem,
+  GradeResponse,
 } from "@/lib/types";
 import { useStudyStore } from "@/hooks/useStudyStore";
 
 interface UseConceptChatOptions {
   concept: ConceptDefinition | undefined;
+  chatContext: ConceptChatContext;
   drillItems?: ConceptDrillItem[];
+  gradeResult?: GradeResponse | null;
   onUsage?: (usage: GeminiCostBreakdown) => void;
 }
 
 export function useConceptChat({
   concept,
+  chatContext,
   drillItems = [],
+  gradeResult = null,
   onUsage,
 }: UseConceptChatOptions) {
   const geminiModel = useStudyStore((s) => s.geminiModel);
@@ -53,12 +61,32 @@ export function useConceptChat({
     [concept?.id, customization],
   );
 
-  const messages = customization?.chatMessages ?? [];
+  const gradingFeedbackConstraints = useMemo(
+    () => resolveGradingFeedbackConstraints(customization),
+    [customization],
+  );
+
+  const messages = useMemo(
+    () => getConceptChatMessages(customization, chatContext),
+    [customization, chatContext],
+  );
+
+  const recentGradingFeedback = useMemo(() => {
+    if (!gradeResult?.drillResults?.length) return "";
+    return gradeResult.drillResults
+      .map(
+        (result) =>
+          `Q${result.index + 1} (${result.isCorrect ? "correct" : "incorrect"}): ${result.feedback}`,
+      )
+      .join("\n");
+  }, [gradeResult?.drillResults]);
 
   const generateOverrides = useMemo(
     () => ({
       conceptDescriptionOverride: customization?.descriptionOverride,
       conceptDrillConstraintsOverride: customization?.drillConstraints,
+      conceptGradingFeedbackConstraintsOverride:
+        customization?.gradingFeedbackConstraints,
     }),
     [customization],
   );
@@ -82,12 +110,15 @@ export function useConceptChat({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            chatContext,
             conceptId: concept.id,
             conceptLabel: concept.label,
             conceptDescription,
             instructionDocument: conceptDocument,
             drillConstraints,
+            gradingFeedbackConstraints,
             currentQuestions: drillItems.map((item) => item.prompt),
+            recentGradingFeedback,
             message,
             chatHistory: messages.map((m) => ({
               role: m.role,
@@ -110,6 +141,7 @@ export function useConceptChat({
           updates?: {
             instructionMarkdown?: string;
             drillConstraints?: string;
+            gradingFeedbackConstraints?: string;
             descriptionOverride?: string;
           };
           geminiUsage?: GeminiCostBreakdown;
@@ -128,6 +160,7 @@ export function useConceptChat({
 
         applyConceptChatUpdates(
           concept.id,
+          chatContext,
           userMessage,
           assistantMessage,
           data.updates,
@@ -140,14 +173,17 @@ export function useConceptChat({
     },
     [
       applyConceptChatUpdates,
+      chatContext,
       concept,
       conceptDescription,
       conceptDocument,
       drillConstraints,
       drillItems,
       geminiModel,
+      gradingFeedbackConstraints,
       messages,
       onUsage,
+      recentGradingFeedback,
     ],
   );
 
@@ -161,6 +197,7 @@ export function useConceptChat({
     conceptDocument,
     conceptDescription,
     drillConstraints,
+    gradingFeedbackConstraints,
     generateOverrides,
   };
 }

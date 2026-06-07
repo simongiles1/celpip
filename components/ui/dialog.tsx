@@ -5,12 +5,15 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
+const SLIDE_ANIMATION_MS = 220;
+
 interface DialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
   panelClassName?: string;
   size?: "full" | "auto";
+  slideFromBottom?: boolean;
 }
 
 export function Dialog({
@@ -19,9 +22,27 @@ export function Dialog({
   children,
   panelClassName,
   size = "full",
+  slideFromBottom = false,
 }: DialogProps) {
+  const [mounted, setMounted] = React.useState(open);
+  const [entered, setEntered] = React.useState(false);
+
   React.useEffect(() => {
     if (open) {
+      setMounted(true);
+      const frame = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setEntered(true));
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    setEntered(false);
+    const timer = window.setTimeout(() => setMounted(false), SLIDE_ANIMATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (mounted) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -29,14 +50,19 @@ export function Dialog({
     return () => {
       document.body.style.overflow = "";
     };
-  }, [open]);
+  }, [mounted]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div
-        className="fixed inset-0 bg-black/50"
+        className={cn(
+          "fixed inset-0 bg-black/50",
+          slideFromBottom &&
+            "transition-opacity duration-200 ease-out motion-reduce:transition-none",
+          slideFromBottom && (entered ? "opacity-100" : "opacity-0"),
+        )}
         onClick={() => onOpenChange(false)}
       />
       <div
@@ -44,6 +70,10 @@ export function Dialog({
           "relative z-50 flex w-full flex-col overflow-hidden rounded-t-xl bg-white shadow-xl sm:rounded-xl",
           size === "auto" ? "h-auto max-h-[95vh]" : "h-[95vh] max-h-[95vh]",
           panelClassName ?? "max-w-5xl",
+          slideFromBottom &&
+            "transform transition-transform duration-200 ease-out will-change-transform motion-reduce:transition-none motion-reduce:transform-none",
+          slideFromBottom &&
+            (entered ? "translate-y-0" : "translate-y-full sm:translate-y-3"),
         )}
       >
         {children}

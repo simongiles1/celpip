@@ -238,6 +238,7 @@ export function buildConceptGradeRequestBody(input: {
   drillItems: ConceptDrillItem[];
   drillResponses: string[];
   model: string;
+  gradingFeedbackConstraints?: string;
 }) {
   const formatted = formatConceptDrillSubmission(
     input.drillItems,
@@ -253,6 +254,7 @@ export function buildConceptGradeRequestBody(input: {
     conceptLabel: input.conceptLabel,
     conceptDrillItems: formatted.isMcSet ? input.drillItems : undefined,
     drillResponses: formatted.drillBlock,
+    gradingFeedbackConstraints: input.gradingFeedbackConstraints,
     model: input.model,
   };
 }
@@ -310,11 +312,12 @@ export function formatConceptDrillItemsGenerationSpec(
   if (isMultipleChoiceConcept(conceptId)) {
     return `"conceptDrillItems": An array of exactly 8 objects, each with:
 - "prompt": the question (use ___ for a blank in the sentence, or ask which option best completes/fixes/paraphrases it)
-- "options": array of exactly 4 plausible answer strings
+- "options": array of exactly 4 plausible answer strings — ONLY what goes in the blank; never repeat words that already appear in the prompt after ___
 - "correctAnswerIndex": integer 0-3 (0 = first option)
 - optional "hint"
 
-CRITICAL: Every item MUST be multiple-choice with exactly 4 options. Do NOT use free-text fill-in-the-blank or one-sentence rewrites without options.`;
+CRITICAL: Every item MUST be multiple-choice with exactly 4 options. Do NOT use free-text fill-in-the-blank or one-sentence rewrites without options.
+CRITICAL: All four options must produce different sentences when inserted at ___. Do not offer redundant options (e.g. "," vs ", however," when "however" already follows the blank).`;
   }
 
   return `"conceptDrillItems": An array of exactly 8 objects with "prompt" (fill-in-the-blank with a single word or short phrase, or a one-sentence rewrite) and optional "hint". Keep prompts concise; answers should be 1-3 words unless rewriting a full sentence.`;

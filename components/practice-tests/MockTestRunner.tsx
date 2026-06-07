@@ -408,11 +408,23 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
     ],
   );
 
+  const isMockInProgress = segmentStates.some((s) =>
+    ["started", "submitting", "graded"].includes(s.status),
+  );
+
+  const mockTimer = useExamCountdown(spec.totalTimeSec, isMockInProgress, {
+    resetKey: attemptIdRef.current,
+  });
+
   // Segment timer + auto-submit on expiry.
   const isSegmentStarted = activeState?.status === "started";
   const segmentTimer = useExamCountdown(
     activeSegment?.timeLimitSec ?? 0,
     isSegmentStarted,
+    {
+      // Each part uses the same limit; reset when the active segment changes or starts.
+      resetKey: `${activeIndex}-${activeState?.startedAt ?? 0}`,
+    },
   );
   const segmentTimerExpired = segmentTimer.expired;
 
@@ -446,9 +458,18 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
           <p className="text-sm text-gray-600">{spec.description}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <Badge variant="secondary">
-            {formatMockDuration(spec.totalTimeSec)} total
-          </Badge>
+          {isMockInProgress ? (
+            <ExamCountdownDisplay
+              remaining={mockTimer.remaining}
+              expired={mockTimer.expired}
+              label="Full mock"
+              className="min-w-[180px]"
+            />
+          ) : (
+            <Badge variant="secondary">
+              {formatMockDuration(spec.totalTimeSec)} total
+            </Badge>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -474,16 +495,17 @@ export function MockTestRunner({ spec }: { spec: MockSpec }) {
               key={`${seg.kind}-${i}`}
               type="button"
               onClick={() => {
+                if (isActive) return;
                 commitActiveQuestionTiming();
                 activeQuestionRef.current = null;
                 setActiveIndex(i);
               }}
               className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                 isActive
-                  ? "border-blue-600 bg-blue-600 text-white"
+                  ? "cursor-default border-blue-600 bg-blue-600 text-white"
                   : s.status === "graded"
-                    ? "border-green-300 bg-green-50 text-green-700"
-                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-100"
+                    ? "cursor-pointer border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
+                    : "cursor-pointer border-gray-200 bg-white text-gray-700 hover:bg-gray-100"
               }`}
             >
               {i + 1}. {seg.label}

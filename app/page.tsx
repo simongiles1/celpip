@@ -86,12 +86,14 @@ export default function HomePage() {
               <button
                 key={option.id}
                 type="button"
-                onClick={() => setView(option.id)}
+                onClick={() => {
+                  if (view !== option.id) setView(option.id);
+                }}
                 className={cn(
                   "rounded px-2 py-0.5 text-xs font-medium transition-colors",
                   view === option.id
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 hover:text-gray-900",
+                    ? "cursor-default bg-blue-600 text-white"
+                    : "cursor-pointer text-gray-600 hover:text-gray-900",
                 )}
               >
                 {option.label}

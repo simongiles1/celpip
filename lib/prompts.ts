@@ -171,7 +171,16 @@ const MULTIPLE_CHOICE_DRILL_RULES = `
 MULTIPLE-CHOICE FORMAT (follow strictly):
 - Every item must have exactly 4 options and one correctAnswerIndex (0-3).
 - Do NOT use free-text fill-in-the-blank. Options must appear only in the "options" array, not duplicated in the prompt.
-- Distractors must be plausible but clearly wrong to a learner who knows the rule.`;
+- Distractors must be plausible but clearly wrong to a learner who knows the rule.
+- Options are ONLY what goes in the ___ blank. If the prompt already has words after ___ (e.g. "___ however, no decision…"), do NOT repeat those words inside any option.
+- All four options must produce clearly different sentences when inserted at ___. Never offer two options that mean the same thing in context (e.g. "," vs ", however," when "however" already follows the blank).`;
+
+export const DEFAULT_GRADING_FEEDBACK_CONSTRAINTS = `
+- Use plain, friendly language. Avoid grammar jargon (comma splice, independent clause, conjunctive adverb, adverbial clause, essential clause).
+- Explain in one or two short sentences what to choose and why — as if talking to a friend, not a linguistics class.
+- Refer to answer options by their text, not by index.
+- Example good: "Use a semicolon here — both parts are full sentences, and 'however' already shows the contrast."
+- Example bad: "The student's choice would create a comma splice between independent clauses."`;
 
 export function getConceptDrillConstraints(conceptId: string | undefined): string {
   if (conceptId === "preposition_in_at_on") {
@@ -209,7 +218,8 @@ CONCEPT-SPECIFIC DRILL RULES (follow strictly):
 ${MULTIPLE_CHOICE_DRILL_RULES}
 - Test formal linking words (however, therefore, furthermore, moreover, nevertheless, consequently, in addition, etc.).
 - Each prompt is a two-clause sentence with ___ between clauses, or asks which connector best joins two ideas.
-- Distractors should be real connectors that do not fit the logic (contrast vs cause vs addition).`;
+- Distractors should be real connectors that do not fit the logic (contrast vs cause vs addition).
+- If the connector word already appears in the prompt after ___, options must be punctuation only (e.g. ",", ";", ".", "—") — never ", however," when "however" follows the blank.`;
   }
 
   if (conceptId === "collocations") {
@@ -243,7 +253,8 @@ ${MULTIPLE_CHOICE_DRILL_RULES}
 CONCEPT-SPECIFIC DRILL RULES (follow strictly):
 ${MULTIPLE_CHOICE_DRILL_RULES}
 - Test comma, semicolon, period, apostrophe, or no punctuation at a single marked slot (___).
-- Options should be punctuation marks or short fragments (e.g. ", and", "; however,", ". However,", "—").
+- Options should be punctuation marks or short fragments (e.g. ",", ";", ".", "—", ", and").
+- If a conjunctive adverb (however, therefore, moreover, etc.) already appears in the prompt immediately after ___, options must be punctuation ONLY — not ", however," or "; however,".
 - Include comma splice and run-on fixes across the set.`;
   }
 
@@ -446,11 +457,14 @@ Return ONLY valid JSON, no markdown fences.`;
 }
 
 export function buildConceptChatPrompt(input: {
+  chatContext: "instructions" | "exercises";
   conceptLabel: string;
   conceptDescription: string;
   instructionDocument: string;
   drillConstraints: string;
+  gradingFeedbackConstraints: string;
   currentQuestions: string[];
+  recentGradingFeedback: string;
   userMessage: string;
   chatHistory: Array<{ role: "user" | "assistant"; content: string }>;
 }): string {
@@ -466,14 +480,14 @@ export function buildConceptChatPrompt(input: {
       ? input.currentQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")
       : "(No exercises loaded yet.)";
 
-  return `You are an expert CELPIP English instructor helping a student refine a micro-skill concept lesson.
+  if (input.chatContext === "instructions") {
+    return `You are an expert CELPIP English instructor helping a student refine the **Instructions** for a micro-skill concept lesson.
 
 The student is studying: "${input.conceptLabel}"
 
-You can update three things based on their feedback:
+You can update two things based on their feedback:
 1. **instructionMarkdown** — the full markdown shown on the Instructions tab (rules, examples, counter-examples). Use clear headings and bullet points.
-2. **drillConstraints** — rules appended to the AI prompt that generates exercise questions. Use this to ban poor question types, require fill-in-the-blank only, specify coverage areas, etc. Write as imperative bullet rules starting with "-".
-3. **descriptionOverride** — a short 1-3 sentence summary of the concept used when generating new exercises.
+2. **descriptionOverride** — a short 1-3 sentence summary of the concept used when generating new exercises.
 
 CURRENT STATE:
 ---
@@ -481,12 +495,6 @@ Short description: ${input.conceptDescription}
 
 Instructions (markdown):
 ${input.instructionDocument}
-
-Exercise generation constraints:
-${input.drillConstraints || "(None — using defaults.)"}
-
-Current exercise prompts:
-${questionsBlock}
 ---
 
 CHAT HISTORY:
@@ -495,14 +503,13 @@ ${historyBlock}
 NEW STUDENT MESSAGE:
 ${input.userMessage}
 
-Analyze the student's feedback. If they point out gaps in instructions, bad exercise formats, missing rules, or unclear examples, update the relevant fields.
+Analyze the student's feedback about the instructions. If they point out gaps, missing rules, unclear examples, or wrong explanations, update the relevant fields.
 
 Rules for your response:
 - Be concise and helpful in "reply".
 - Only include fields in "updates" that actually change. Omit unchanged fields.
 - When updating instructionMarkdown, provide the COMPLETE new document (not a diff).
-- When updating drillConstraints, provide the COMPLETE constraint block that should replace any prior custom constraints.
-- If exercise rules changed, mention in reply that they should click "New question set" to regenerate exercises.
+- Do NOT update drillConstraints or gradingFeedbackConstraints — this chat is instructions-only.
 - Set "changesSummary" to a one-line note of what you changed, or null if nothing changed.
 
 Return ONLY valid JSON:
@@ -511,8 +518,62 @@ Return ONLY valid JSON:
   "changesSummary": "Brief note of changes made, or null",
   "updates": {
     "instructionMarkdown": "optional full markdown",
-    "drillConstraints": "optional full constraint block",
     "descriptionOverride": "optional short description"
+  }
+}
+
+Omit "updates" entirely or use an empty object if no changes are needed.`;
+  }
+
+  return `You are an expert CELPIP English instructor helping a student refine the **Exercises** for a micro-skill concept lesson.
+
+The student is studying: "${input.conceptLabel}"
+
+You can update two things based on their feedback:
+1. **drillConstraints** — rules appended to the AI prompt that generates exercise questions. Use this to ban poor question types, fix duplicate options, require fill-in-the-blank only, specify coverage areas, etc. Write as imperative bullet rules starting with "-".
+2. **gradingFeedbackConstraints** — rules for how the AI explains correct/incorrect answers after the student submits exercises. Use this when feedback is too technical, unclear, too long, or missing key points. Write as imperative bullet rules starting with "-".
+
+CURRENT STATE:
+---
+Short description: ${input.conceptDescription}
+
+Exercise generation constraints:
+${input.drillConstraints || "(None — using defaults.)"}
+
+Grading feedback style constraints:
+${input.gradingFeedbackConstraints || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS}
+
+Current exercise prompts:
+${questionsBlock}
+
+Recent grading feedback shown to the student:
+${input.recentGradingFeedback || "(No graded attempts yet.)"}
+---
+
+CHAT HISTORY:
+${historyBlock}
+
+NEW STUDENT MESSAGE:
+${input.userMessage}
+
+Analyze the student's feedback about exercises or grading explanations. If they report bad question formats, duplicate answer options, confusing prompts, or overly technical post-grade feedback, update the relevant fields.
+
+Rules for your response:
+- Be concise and helpful in "reply".
+- Only include fields in "updates" that actually change. Omit unchanged fields.
+- When updating drillConstraints or gradingFeedbackConstraints, provide the COMPLETE constraint block that should replace any prior custom constraints.
+- If exercise generation rules changed, mention in reply that they should click "New question set" to regenerate exercises.
+- If only grading feedback style changed, mention that future submissions will use the new style (past grades are unchanged).
+- Do NOT update instructionMarkdown — this chat is exercises-only.
+- Set "changesSummary" to a one-line note of what you changed, or null if nothing changed.
+
+Return ONLY valid JSON:
+{
+  "reply": "Your conversational response to the student",
+  "changesSummary": "Brief note of changes made, or null",
+  "updates": {
+    "drillConstraints": "optional full constraint block",
+    "gradingFeedbackConstraints": "optional full constraint block"
   }
 }
 
@@ -703,13 +764,20 @@ export function buildConceptMcGradingPrompt(
   drillItemsJson: string,
   studentAnswersJson: string,
   scoreSummary: string,
+  gradingFeedbackConstraints?: string,
 ): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
   return `You are an expert English instructor grading a multiple-choice concept drill.
 
 Concept: ${conceptLabel}
 Automatic Score: ${scoreSummary}
 Drill exercises (with options and correctAnswerIndex): ${drillItemsJson}
 Student selected option indexes (0-3 per question): ${studentAnswersJson}
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
 
 The score is already computed. Provide JSON:
 {
@@ -721,14 +789,14 @@ The score is already computed. Provide JSON:
   "drillResults": [
     {
       "index": 0,
-      "feedback": "One sentence explaining why the correct option is right, or why the student's choice was wrong."
+      "feedback": "One or two short sentences in plain language explaining why the correct option is right, or why the student's choice was wrong."
     }
   ],
   "skillTags": []
 }
 
 Include exactly one drillResults entry per exercise (indexes 0 through N-1). Focus feedback on the options — refer to option text, not Yes/No.
-For correct answers, give brief reinforcement. For incorrect answers, explain why the correct option fits.
+For correct answers, give brief reinforcement. For incorrect answers, explain why the correct option fits in simple terms.
 Do NOT set isCorrect, studentAnswer, or correctAnswer — those are computed separately.
 Return ONLY valid JSON, no markdown fences.`;
 }
@@ -737,12 +805,19 @@ export function buildConceptGradingPrompt(
   conceptLabel: string,
   drillResponses: string,
   studentSubmission: string,
+  gradingFeedbackConstraints?: string,
 ): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
   return `You are an expert English instructor grading a focused concept drill.
 
 Concept: ${conceptLabel}
 Drill exercises: ${drillResponses}
 Student responses: ${studentSubmission}
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
 
 Known concept IDs for skillTags: ${SEED_CONCEPT_IDS}
 ${GRAMMAR_CORRECTIONS_GUIDANCE}
@@ -760,7 +835,7 @@ Grade each drill exercise individually. Provide JSON:
       "isCorrect": true,
       "studentAnswer": "what the student wrote",
       "correctAnswer": "the best acceptable answer",
-      "feedback": "one sentence explaining why correct or incorrect"
+      "feedback": "one or two short sentences in plain language explaining why correct or incorrect"
     }
   ],
   ${SKILL_TAGS_SCHEMA}

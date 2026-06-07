@@ -10,12 +10,15 @@ const chatMessageSchema = z.object({
 });
 
 const requestSchema = z.object({
+  chatContext: z.enum(["instructions", "exercises"]).default("instructions"),
   conceptId: z.string(),
   conceptLabel: z.string(),
   conceptDescription: z.string(),
   instructionDocument: z.string(),
   drillConstraints: z.string(),
+  gradingFeedbackConstraints: z.string().default(""),
   currentQuestions: z.array(z.string()).default([]),
+  recentGradingFeedback: z.string().default(""),
   message: z.string().min(1),
   chatHistory: z.array(chatMessageSchema).default([]),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
@@ -28,6 +31,7 @@ const responseSchema = z.object({
     .object({
       instructionMarkdown: z.string().optional(),
       drillConstraints: z.string().optional(),
+      gradingFeedbackConstraints: z.string().optional(),
       descriptionOverride: z.string().optional(),
     })
     .optional(),
@@ -48,11 +52,14 @@ export async function POST(request: Request) {
     const input = requestSchema.parse(body);
 
     const prompt = buildConceptChatPrompt({
+      chatContext: input.chatContext,
       conceptLabel: input.conceptLabel,
       conceptDescription: input.conceptDescription,
       instructionDocument: input.instructionDocument,
       drillConstraints: input.drillConstraints,
+      gradingFeedbackConstraints: input.gradingFeedbackConstraints,
       currentQuestions: input.currentQuestions,
+      recentGradingFeedback: input.recentGradingFeedback,
       userMessage: input.message,
       chatHistory: input.chatHistory,
     });

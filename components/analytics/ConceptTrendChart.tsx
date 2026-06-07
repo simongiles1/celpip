@@ -78,11 +78,13 @@ export function ConceptTrendChart() {
             <button
               key={concept.id}
               type="button"
-              onClick={() => setSelectedId(concept.id)}
+              onClick={() => {
+                if (activeId !== concept.id) setSelectedId(concept.id);
+              }}
               className={`rounded-full px-3 py-1 text-xs font-medium ${
                 activeId === concept.id
-                  ? "bg-purple-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  ? "cursor-default bg-purple-600 text-white"
+                  : "cursor-pointer bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
               {concept.label}

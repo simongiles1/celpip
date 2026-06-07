@@ -69,6 +69,7 @@ export function ConceptCreateChatPanel({
       onOpenChange={(next) => (next ? onOpenChange(true) : handleClose())}
       panelClassName="max-w-lg"
       size="auto"
+      slideFromBottom
     >
       <DialogHeader onClose={handleClose}>
         <DialogTitle>Add a concept</DialogTitle>

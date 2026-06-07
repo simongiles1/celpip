@@ -1,6 +1,11 @@
 import { getConceptDocument } from "@/data/concept-documents";
-import { getConceptDrillConstraints } from "@/lib/prompts";
+import {
+  DEFAULT_GRADING_FEEDBACK_CONSTRAINTS,
+  getConceptDrillConstraints,
+} from "@/lib/prompts";
 import type {
+  ConceptChatContext,
+  ConceptChatMessage,
   ConceptCustomization,
   ConceptDefinition,
 } from "@/lib/types";
@@ -39,6 +44,29 @@ export function resolveDrillConstraints(
   return getConceptDrillConstraints(conceptId);
 }
 
+export function resolveGradingFeedbackConstraints(
+  customization?: ConceptCustomization,
+): string {
+  if (customization?.gradingFeedbackConstraints?.trim()) {
+    return customization.gradingFeedbackConstraints;
+  }
+  return DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+}
+
+export function getConceptChatMessages(
+  customization: ConceptCustomization | undefined,
+  context: ConceptChatContext,
+): ConceptChatMessage[] {
+  if (context === "instructions") {
+    return (
+      customization?.instructionChatMessages ??
+      customization?.chatMessages ??
+      []
+    );
+  }
+  return customization?.exerciseChatMessages ?? [];
+}
+
 export function upsertConceptCustomization(
   customizations: ConceptCustomization[],
   conceptId: string,
@@ -47,9 +75,14 @@ export function upsertConceptCustomization(
   const existing = getConceptCustomization(customizations, conceptId);
   const updated: ConceptCustomization = {
     conceptId,
-    chatMessages: existing?.chatMessages ?? [],
+    instructionChatMessages:
+      existing?.instructionChatMessages ??
+      existing?.chatMessages ??
+      [],
+    exerciseChatMessages: existing?.exerciseChatMessages ?? [],
     instructionMarkdown: existing?.instructionMarkdown,
     drillConstraints: existing?.drillConstraints,
+    gradingFeedbackConstraints: existing?.gradingFeedbackConstraints,
     descriptionOverride: existing?.descriptionOverride,
     updatedAt: new Date().toISOString(),
     ...patch,

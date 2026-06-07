@@ -34,11 +34,26 @@ interface StudyCalendarProps {
   view: CalendarView;
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isMobile;
+}
+
 export function StudyCalendar({ onEventClick, view }: StudyCalendarProps) {
   const events = useStudyStore((s) => s.events);
   const generated = useStudyStore((s) => s.generated);
   const skillProfile = useStudyStore((s) => s.skillProfile);
   const updateEvent = useStudyStore((s) => s.updateEvent);
+  const isMobile = useIsMobile();
   const [plugins, setPlugins] = useState<
     Awaited<ReturnType<typeof loadPlugins>> | null
   >(null);
@@ -117,29 +132,44 @@ export function StudyCalendar({ onEventClick, view }: StudyCalendarProps) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <FullCalendar
-          plugins={plugins}
-          initialView={view}
-          key={view}
-          headerToolbar={{
-            left: "prev,next today",
-            center: "title",
-            right: "",
-          }}
-          events={calendarEvents}
-          editable
-          droppable
-          eventContent={renderCalendarEventContent}
-          eventClick={handleEventClick}
-          eventDrop={handleEventDrop}
-          eventResize={handleEventResize}
-          height="auto"
-          slotMinTime="07:00:00"
-          slotMaxTime="21:00:00"
-          allDaySlot={false}
-          nowIndicator
-        />
+    <div className="study-calendar -mx-4 border-y border-gray-200 bg-white px-1 py-2 sm:mx-0 sm:rounded-xl sm:border sm:px-4 sm:py-4">
+      <FullCalendar
+        plugins={plugins}
+        initialView={view}
+        key={`${view}-${isMobile ? "mobile" : "desktop"}`}
+        headerToolbar={{
+          left: "prev,next today",
+          center: "title",
+          right: "",
+        }}
+        titleFormat={
+          isMobile
+            ? { month: "short", day: "numeric" }
+            : { month: "long", day: "numeric", year: "numeric" }
+        }
+        dayHeaderFormat={
+          isMobile
+            ? { weekday: "narrow", day: "numeric" }
+            : { weekday: "short", month: "numeric", day: "numeric" }
+        }
+        slotLabelFormat={
+          isMobile
+            ? { hour: "numeric", meridiem: "narrow" }
+            : { hour: "numeric", meridiem: "short" }
+        }
+        events={calendarEvents}
+        editable
+        droppable
+        eventContent={renderCalendarEventContent}
+        eventClick={handleEventClick}
+        eventDrop={handleEventDrop}
+        eventResize={handleEventResize}
+        height="auto"
+        slotMinTime="07:00:00"
+        slotMaxTime="21:00:00"
+        allDaySlot={false}
+        nowIndicator
+      />
     </div>
   );
 }

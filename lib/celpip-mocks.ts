@@ -31,7 +31,8 @@ export interface MockSpec {
   writingSegments?: MockWritingTaskSegment[];
 }
 
-const READING_PART_TIME_SEC = 11 * 60;
+/** Official CELPIP Reading is ~55 min for 38 questions (~14 min per part). */
+const READING_PART_TIME_SEC = 14 * 60;
 const WRITING_TASK_1_SEC = 27 * 60;
 const WRITING_TASK_2_SEC = 26 * 60;
 

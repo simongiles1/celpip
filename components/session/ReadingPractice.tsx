@@ -164,7 +164,7 @@ function ClbBandSlider({
         <button
           type="button"
           onClick={() => onChange(clampClb(suggested))}
-          className="text-xs font-medium text-blue-600 hover:underline disabled:opacity-50"
+          className="text-xs font-medium text-blue-600 hover:underline cursor-pointer disabled:opacity-50"
           disabled={disabled}
           title="Auto-suggested based on your last passage accuracy"
         >
@@ -483,7 +483,10 @@ export function ReadingPractice({
                     type="button"
                     size="sm"
                     variant={passage.isActive ? "default" : "outline"}
-                    onClick={() => onSelectPassage(passage.setNumber)}
+                    className={passage.isActive ? "cursor-default" : undefined}
+                    onClick={() => {
+                      if (!passage.isActive) onSelectPassage(passage.setNumber);
+                    }}
                     disabled={sessionFinished && !passage.isGraded}
                   >
                     {passage.label}
@@ -571,7 +574,7 @@ export function ReadingPractice({
                         <span className="group relative inline-flex">
                           <button
                             type="button"
-                            className="text-sm text-blue-600 hover:underline"
+                            className="text-sm text-blue-600 hover:underline cursor-pointer"
                             aria-label="Show overall feedback"
                             title={gradeResult.overallFeedback}
                           >

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, MessageCircle, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
-import type { ConceptChatMessage } from "@/lib/types";
+import type { ConceptChatContext, ConceptChatMessage } from "@/lib/types";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ interface ConceptChatPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   conceptLabel: string;
+  chatContext: ConceptChatContext;
   messages: ConceptChatMessage[];
   onSend: (message: string) => Promise<void>;
   sending: boolean;
@@ -40,15 +41,37 @@ export function ConceptChatButton({
   );
 }
 
+const CHAT_CONTEXT_COPY: Record<
+  ConceptChatContext,
+  { title: string; hint: string; placeholder: string; emptyExample: string }
+> = {
+  instructions: {
+    title: "Instructions tutor",
+    hint: "Ask about or refine the instructions for this concept only.",
+    placeholder: "Ask about the instructions…",
+    emptyExample:
+      "Example: \u201cThe instructions miss \u2018listened to\u2019 \u2014 movement toward sound, not just places.\u201d",
+  },
+  exercises: {
+    title: "Exercises tutor",
+    hint: "Ask about questions, grading feedback, or exercise style for this tab only.",
+    placeholder: "Ask about exercises or grading feedback…",
+    emptyExample:
+      "Example: \u201cThe wrong-answer explanations are too technical \u2014 use simpler language.\u201d or \u201cStop offering duplicate punctuation options.\u201d",
+  },
+};
+
 export function ConceptChatPanel({
   open,
   onOpenChange,
   conceptLabel,
+  chatContext,
   messages,
   onSend,
   sending,
   className,
 }: ConceptChatPanelProps) {
+  const copy = CHAT_CONTEXT_COPY[chatContext];
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -82,7 +105,7 @@ export function ConceptChatPanel({
     >
       <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3">
         <div className="min-w-0 pr-2">
-          <p className="text-sm font-semibold text-gray-900">Concept tutor</p>
+          <p className="text-sm font-semibold text-gray-900">{copy.title}</p>
           <p className="truncate text-xs text-gray-500">{conceptLabel}</p>
         </div>
         <Button
@@ -97,16 +120,12 @@ export function ConceptChatPanel({
       </div>
 
       <p className="shrink-0 border-b border-gray-100 bg-gray-50 px-4 py-2 text-xs text-gray-600">
-        Ask about the instructions or exercises. The tutor can update both.
+        {copy.hint}
       </p>
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
-          <p className="text-sm text-gray-500">
-            Example: &ldquo;The instructions miss &lsquo;listened to&rsquo; — movement
-            toward sound, not just places.&rdquo; or &ldquo;Drop fix-the-sentence
-            questions; use fill-in-the-blank only.&rdquo;
-          </p>
+          <p className="text-sm text-gray-500">{copy.emptyExample}</p>
         )}
         {messages.map((message, index) => (
           <div
@@ -153,7 +172,7 @@ export function ConceptChatPanel({
                 void handleSubmit();
               }
             }}
-            placeholder="Ask or give feedback…"
+            placeholder={copy.placeholder}
             rows={2}
             className="min-h-[4.5rem] flex-1 resize-none"
             disabled={sending}

@@ -46,9 +46,9 @@ export function getWritingExamTimeLimitLabel(practiceType: string): string {
 }
 
 /** CELPIP-style per-passage reading limits (minutes). */
-const READING_PART_MIN = 11;
+const READING_PART_MIN = 14;
 const READING_MIXED_MIN = 12;
-const READING_MOCK_SLICE_MIN = 15;
+const READING_MOCK_SLICE_MIN = 14;
 
 export function getReadingPassageTimeLimitSeconds(practiceType: string): number {
   const lower = practiceType.toLowerCase();

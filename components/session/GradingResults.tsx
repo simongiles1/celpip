@@ -165,7 +165,7 @@ export function GradingResults({
                     {onPracticeConcept ? (
                       <button
                         type="button"
-                        className="font-medium underline-offset-2 hover:underline"
+                        className="cursor-pointer font-medium underline-offset-2 hover:underline"
                         onClick={() => onPracticeConcept(fix.conceptId!)}
                       >
                         {getConceptById(skillProfile, fix.conceptId)?.label ??

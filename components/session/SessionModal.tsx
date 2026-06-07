@@ -10,10 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConceptPractice } from "@/components/session/ConceptPractice";
-import {
-  ConceptChatButton,
-  ConceptChatPanel,
-} from "@/components/session/ConceptChatPanel";
 import { ExerciseKindBadge } from "@/components/session/ExerciseKindBadge";
 import { GeminiCostPopover } from "@/components/session/GeminiCostPopover";
 import { ConceptSessionModal } from "@/components/session/ConceptSessionModal";
@@ -42,7 +38,6 @@ import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import { getExerciseKindForUnit } from "@/lib/exercise-types";
 import { getConceptById, getSkillTagsForEvent, getStrongConcepts, getWeakConcepts } from "@/lib/skill-profile";
 import type {
-  ConceptDrillItem,
   CurriculumUnit,
   GenerateResponse,
   GradeResponse,
@@ -50,26 +45,17 @@ import type {
   StudyEvent,
 } from "@/lib/types";
 
-interface ConceptGenerateOverrides {
-  conceptDescriptionOverride?: string;
-  conceptDrillConstraintsOverride?: string;
-}
-
 function SessionModalContent({
   event,
   unit,
   onUsageChange,
-  conceptDocument,
-  generateOverrides,
-  onDrillItemsChange,
+  onChatUsageChange,
   onPracticeConcept,
 }: {
   event: StudyEvent;
   unit: CurriculumUnit;
   onUsageChange: (usage: GeminiCostBreakdown | null) => void;
-  conceptDocument?: string;
-  generateOverrides?: ConceptGenerateOverrides;
-  onDrillItemsChange?: (items: ConceptDrillItem[]) => void;
+  onChatUsageChange?: (usage: GeminiCostBreakdown | undefined) => void;
   onPracticeConcept?: (conceptId: string) => void;
 }) {
   const addGenerated = useStudyStore((s) => s.addGenerated);
@@ -84,6 +70,9 @@ function SessionModalContent({
   const cached = getGeneratedForEvent(event.id);
   const isReading = unit.focusSubTest === "Reading";
   const isConceptUnit = unit.focusSubTest === "Concept";
+  const conceptMeta = event.conceptId
+    ? getConceptById(skillProfile, event.conceptId)
+    : undefined;
   const conceptSaved =
     isConceptUnit && typeof existingGrade?.studentSubmission === "string"
       ? parseConceptSubmission(existingGrade.studentSubmission)
@@ -175,17 +164,28 @@ function SessionModalContent({
   const isConcept = unit.focusSubTest === "Concept";
   const drillItems = content?.conceptDrillItems ?? [];
 
+  const instructionsChat = useConceptChat({
+    concept: isConcept ? conceptMeta : undefined,
+    chatContext: "instructions",
+    onUsage: onChatUsageChange,
+  });
+
+  const exercisesChat = useConceptChat({
+    concept: isConcept ? conceptMeta : undefined,
+    chatContext: "exercises",
+    drillItems,
+    gradeResult,
+    onUsage: onChatUsageChange,
+  });
+
+  const conceptDocument = instructionsChat.conceptDocument;
+  const generateOverrides = instructionsChat.generateOverrides;
+
   useEffect(() => {
     if (drillItems.length && drillResponses.length === 0) {
       setDrillResponses(Array(drillItems.length).fill(""));
     }
   }, [drillItems.length, drillResponses.length]);
-
-  useEffect(() => {
-    if (isConcept) {
-      onDrillItemsChange?.(drillItems);
-    }
-  }, [isConcept, drillItems, onDrillItemsChange]);
 
   const sessionMode: SessionMode = isConcept
     ? "concept"
@@ -373,6 +373,8 @@ function SessionModalContent({
             drillItems,
             drillResponses,
             model: geminiModel,
+            gradingFeedbackConstraints:
+              exercisesChat.gradingFeedbackConstraints,
           }),
         ),
       });
@@ -453,7 +455,7 @@ function SessionModalContent({
         <button
           type="button"
           onClick={() => void fetchContent()}
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-blue-600 hover:underline cursor-pointer"
         >
           Retry generation
         </button>
@@ -521,6 +523,32 @@ function SessionModalContent({
             gradeResult={gradeResult}
             initialQuestionTimings={questionTimings}
             initialSessionDurationSeconds={initialSessionDurationSeconds}
+            instructionsChat={
+              conceptMeta
+                ? {
+                    open: instructionsChat.chatOpen,
+                    onOpenChange: instructionsChat.setChatOpen,
+                    messages: instructionsChat.messages,
+                    onSend: instructionsChat.sendMessage,
+                    sending: instructionsChat.sending,
+                    conceptLabel: conceptMeta.label,
+                    chatContext: "instructions",
+                  }
+                : undefined
+            }
+            exercisesChat={
+              conceptMeta
+                ? {
+                    open: exercisesChat.chatOpen,
+                    onOpenChange: exercisesChat.setChatOpen,
+                    messages: exercisesChat.messages,
+                    onSend: exercisesChat.sendMessage,
+                    sending: exercisesChat.sending,
+                    conceptLabel: conceptMeta.label,
+                    chatContext: "exercises",
+                  }
+                : undefined
+            }
           />
         </div>
       ) : (
@@ -540,6 +568,16 @@ function SessionModalContent({
         />
       )}
       {error && <p className="mt-3 shrink-0 text-sm text-red-600">{error}</p>}
+      {instructionsChat.chatError && (
+        <p className="mt-3 shrink-0 text-sm text-red-600">
+          {instructionsChat.chatError}
+        </p>
+      )}
+      {exercisesChat.chatError && (
+        <p className="mt-3 shrink-0 text-sm text-red-600">
+          {exercisesChat.chatError}
+        </p>
+      )}
     </div>
   );
 }
@@ -547,7 +585,6 @@ function SessionModalContent({
 export function SessionModal() {
   const selectedEventId = useStudyStore((s) => s.selectedEventId);
   const setSelectedEventId = useStudyStore((s) => s.setSelectedEventId);
-  const skillProfile = useStudyStore((s) => s.skillProfile);
   const geminiModel = useStudyStore((s) => s.geminiModel);
   const { event, unit } = useSelectedEvent();
   const [contentUsage, setContentUsage] = useState<GeminiCostBreakdown | null>(
@@ -557,32 +594,9 @@ export function SessionModal() {
   const [sessionUsage, setSessionUsage] = useState<GeminiCostBreakdown | null>(
     null,
   );
-  const [conceptDrillItems, setConceptDrillItems] = useState<ConceptDrillItem[]>(
-    [],
-  );
   const [practiceConceptId, setPracticeConceptId] = useState<string | null>(null);
 
-  const isConceptSession = unit?.focusSubTest === "Concept";
   const isVocabularySession = unit?.focusSubTest === "Vocabulary";
-  const concept =
-    isConceptSession && event?.conceptId
-      ? getConceptById(skillProfile, event.conceptId)
-      : undefined;
-
-  const {
-    chatOpen,
-    setChatOpen,
-    sending: chatSending,
-    chatError,
-    messages: chatMessages,
-    sendMessage,
-    conceptDocument,
-    generateOverrides,
-  } = useConceptChat({
-    concept,
-    drillItems: conceptDrillItems,
-    onUsage: setChatUsage,
-  });
 
   const open = Boolean(selectedEventId && event && unit && !isVocabularySession);
   const exerciseKind = unit ? getExerciseKindForUnit(unit) : null;
@@ -591,7 +605,6 @@ export function SessionModal() {
     if (!open) {
       setContentUsage(null);
       setChatUsage(undefined);
-      setConceptDrillItems([]);
     }
   }, [open]);
 
@@ -605,10 +618,6 @@ export function SessionModal() {
     );
   }, [contentUsage, chatUsage, geminiModel]);
 
-  const handleDrillItemsChange = useCallback((items: ConceptDrillItem[]) => {
-    setConceptDrillItems(items);
-  }, []);
-
   return (
     <>
       <Dialog open={open} onOpenChange={(v) => !v && setSelectedEventId(null)}>
@@ -617,16 +626,7 @@ export function SessionModal() {
           <DialogHeader
             onClose={() => setSelectedEventId(null)}
             className="px-6 py-3"
-            trailing={
-              isConceptSession && concept ? (
-                <>
-                  <ConceptChatButton onClick={() => setChatOpen(true)} />
-                  <GeminiCostPopover usage={sessionUsage} />
-                </>
-              ) : (
-                <GeminiCostPopover usage={sessionUsage} />
-              )
-            }
+            trailing={<GeminiCostPopover usage={sessionUsage} />}
           >
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -653,28 +653,10 @@ export function SessionModal() {
               event={event}
               unit={unit}
               onUsageChange={setContentUsage}
-              conceptDocument={isConceptSession ? conceptDocument : undefined}
-              generateOverrides={isConceptSession ? generateOverrides : undefined}
-              onDrillItemsChange={
-                isConceptSession ? handleDrillItemsChange : undefined
-              }
+              onChatUsageChange={setChatUsage}
               onPracticeConcept={setPracticeConceptId}
             />
-            {chatError && (
-              <p className="mt-3 text-sm text-red-600">{chatError}</p>
-            )}
           </DialogContent>
-
-          {isConceptSession && concept && (
-            <ConceptChatPanel
-              open={chatOpen}
-              onOpenChange={setChatOpen}
-              conceptLabel={concept.label}
-              messages={chatMessages}
-              onSend={sendMessage}
-              sending={chatSending}
-            />
-          )}
         </div>
       )}
       </Dialog>

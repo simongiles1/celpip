@@ -69,6 +69,7 @@ const requestSchema = z.object({
   conceptLabel: z.string().optional(),
   conceptDrillItems: z.array(conceptDrillItemSchema).optional(),
   drillResponses: z.string().optional(),
+  gradingFeedbackConstraints: z.string().optional(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
 });
 
@@ -245,6 +246,7 @@ export async function POST(request: Request) {
         JSON.stringify(conceptDrillItemsForGrade),
         JSON.stringify(conceptMcAnswers),
         score.summary,
+        input.gradingFeedbackConstraints,
       );
     } else if (input.focusSubTest === "Concept" && input.conceptLabel) {
       const submission =
@@ -255,6 +257,7 @@ export async function POST(request: Request) {
         input.conceptLabel,
         input.drillResponses ?? "",
         submission,
+        input.gradingFeedbackConstraints,
       );
     } else {
       const submission =
