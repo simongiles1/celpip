@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
-import { Bug, CheckCircle2, ClipboardPaste, ImageIcon, Lightbulb, Plus, Trash2, X } from "lucide-react";
+import {
+  Bug,
+  CheckCircle2,
+  ClipboardPaste,
+  ImageIcon,
+  Lightbulb,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +56,8 @@ export default function FeedbackPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [screenshotDataUrls, setScreenshotDataUrls] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pasteAreaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadTickets = useCallback(async () => {
     setLoading(true);
@@ -73,6 +85,21 @@ export default function FeedbackPage() {
     return tickets.filter((ticket) => ticket.type === filter);
   }, [filter, tickets]);
 
+  const addScreenshotFromFile = useCallback((file: File) => {
+    if (!file.type.startsWith("image/")) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") return;
+      setScreenshotDataUrls((current) =>
+        current.length >= MAX_SCREENSHOTS
+          ? current
+          : [...current, reader.result as string],
+      );
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
   const handlePasteScreenshot = (event: React.ClipboardEvent) => {
     if (screenshotDataUrls.length >= MAX_SCREENSHOTS) return;
 
@@ -85,19 +112,32 @@ export default function FeedbackPage() {
       if (!file) continue;
 
       event.preventDefault();
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          setScreenshotDataUrls((current) =>
-            current.length >= MAX_SCREENSHOTS
-              ? current
-              : [...current, reader.result as string],
-          );
-        }
-      };
-      reader.readAsDataURL(file);
+      addScreenshotFromFile(file);
+      pasteAreaRef.current?.blur();
       return;
     }
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+
+    let remaining = MAX_SCREENSHOTS - screenshotDataUrls.length;
+    for (const file of files) {
+      if (remaining <= 0) break;
+      addScreenshotFromFile(file);
+      remaining -= 1;
+    }
+
+    event.target.value = "";
+  };
+
+  const focusPasteArea = () => {
+    if (screenshotDataUrls.length >= MAX_SCREENSHOTS) return;
+    const pasteArea = pasteAreaRef.current;
+    if (!pasteArea) return;
+    pasteArea.focus({ preventScroll: true });
+    pasteArea.setSelectionRange(0, 0);
   };
 
   const removeScreenshot = (index: number) => {
@@ -237,7 +277,7 @@ export default function FeedbackPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Feedback & Issues</h1>
           <p className="text-sm text-gray-600">
-            Report bugs or request features. Attach multiple screenshots from your
+            Report bugs or request features. Attach screenshots from your device or
             clipboard when reporting UI issues.
           </p>
         </div>
@@ -509,26 +549,56 @@ export default function FeedbackPage() {
                 </div>
               )}
 
-              <div
-                tabIndex={0}
-                onPaste={handlePasteScreenshot}
-                className={cn(
-                  "relative rounded-lg border-2 border-dashed p-4 outline-none transition-colors",
-                  "focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20",
-                  screenshotDataUrls.length >= MAX_SCREENSHOTS
-                    ? "cursor-not-allowed border-gray-200 bg-gray-50 opacity-60"
-                    : "cursor-pointer border-gray-300 bg-white hover:border-gray-400",
-                )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                aria-hidden
+                tabIndex={-1}
+                onChange={handleFileSelect}
+                disabled={screenshotDataUrls.length >= MAX_SCREENSHOTS}
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={screenshotDataUrls.length >= MAX_SCREENSHOTS}
+                onClick={() => fileInputRef.current?.click()}
               >
-                <div className="flex flex-col items-center gap-2 py-4 text-center text-sm text-gray-500">
+                <Upload className="h-4 w-4" />
+                Choose photo or file
+              </Button>
+
+              <div className="relative">
+                <textarea
+                  ref={pasteAreaRef}
+                  readOnly
+                  aria-label="Paste screenshot from clipboard"
+                  onPaste={handlePasteScreenshot}
+                  onClick={focusPasteArea}
+                  onFocus={(event) => event.target.setSelectionRange(0, 0)}
+                  disabled={screenshotDataUrls.length >= MAX_SCREENSHOTS}
+                  className={cn(
+                    "relative min-h-[132px] w-full resize-none rounded-lg border-2 border-dashed bg-transparent p-4 text-transparent caret-transparent outline-none transition-colors",
+                    "focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20",
+                    screenshotDataUrls.length >= MAX_SCREENSHOTS
+                      ? "cursor-not-allowed border-gray-200 bg-gray-50 opacity-60"
+                      : "cursor-text border-gray-300 hover:border-gray-400",
+                  )}
+                />
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-gray-500"
+                >
                   <ClipboardPaste className="h-7 w-7 text-gray-400" />
-                  <p className="font-medium text-gray-700">
-                    Click here, then paste (Ctrl+V)
-                  </p>
+                  <p className="font-medium text-gray-700">Tap here, then paste</p>
                   <p>
                     {screenshotDataUrls.length >= MAX_SCREENSHOTS
                       ? "Maximum screenshots reached"
-                      : "Paste screenshots one at a time from your clipboard"}
+                      : "On desktop you can also use Ctrl+V or Cmd+V after tapping here"}
                   </p>
                 </div>
               </div>
