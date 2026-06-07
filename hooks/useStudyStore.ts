@@ -10,6 +10,14 @@ import {
   regenerateSchedule,
   shouldReconcileConceptInjections,
 } from "@/lib/schedule";
+import {
+  graduateFocusConcepts,
+  processFocusGradeResult,
+  recordFocusPractice,
+  setActiveFocusSet,
+  setLastFocusAssessment,
+  withFocusModel,
+} from "@/lib/focus-model";
 import { applySkillTags, addDiscoveredConcept as mergeDiscoveredConcept, withWritingConceptFrequency } from "@/lib/skill-profile";
 import type { GeminiModel } from "@/lib/gemini";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/gemini";
@@ -86,7 +94,7 @@ interface StudyStore {
   addGraded: (
     session: GradedSession,
     gradeResult?: Pick<GradeResponse, "skillTags">,
-    track?: "subtest" | "concept",
+    track?: "subtest" | "concept" | "focus",
   ) => void;
   getGradedForEvent: (eventId: string) => GradedSession | undefined;
   setReadingQuestionChatMessages: (
@@ -115,6 +123,18 @@ interface StudyStore {
   addDiscoveredConcept: (
     input: Omit<ConceptDefinition, "source">,
   ) => { conceptId?: string; error?: string };
+  setActiveFocus: (conceptIds: string[]) => void;
+  recordFocusPractice: (conceptId: string) => void;
+  graduateConcepts: (conceptIds: string[]) => void;
+  processFocusedGrade: (
+    eventId: string,
+    gradeResult: Pick<GradeResponse, "skillTags" | "focusRankings">,
+  ) => {
+    graduated: string[];
+    nextFocus: string[];
+    rationale: import("@/lib/types").FocusSelectionRationale[];
+  };
+  setLastFocusAssessment: (eventId: string) => void;
 }
 
 function clampClbBand(value: number | null | undefined): number {
@@ -188,11 +208,15 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
       }
     }
 
-    const skillProfile = withWritingConceptFrequency(
+    let skillProfile = withWritingConceptFrequency(
       data.skillProfile,
       migrated.graded,
     );
-    if (skillProfile !== data.skillProfile) {
+    const withFocus = withFocusModel(skillProfile);
+    if (withFocus !== skillProfile) {
+      skillProfile = withFocus;
+      await persistSkillProfile(skillProfile);
+    } else if (skillProfile !== data.skillProfile) {
       await persistSkillProfile(skillProfile);
     }
 
@@ -388,7 +412,7 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   getGeneratedForEvent: (eventId) =>
     get().generated.find((g) => g.eventId === eventId),
 
-  addGraded: (session, gradeResult, track = "subtest") => {
+  addGraded: (session, gradeResult, track: "subtest" | "concept" | "focus" = "subtest") => {
     const previousCount = get().graded.length;
     const graded = [
       ...get().graded.filter((g) => g.eventId !== session.eventId),
@@ -528,6 +552,41 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     persistSkillProfile(profile);
     set({ skillProfile: profile });
     return { conceptId };
+  },
+
+  setActiveFocus: (conceptIds) => {
+    const skillProfile = setActiveFocusSet(get().skillProfile, conceptIds);
+    persistSkillProfile(skillProfile);
+    set({ skillProfile });
+  },
+
+  recordFocusPractice: (conceptId) => {
+    const skillProfile = recordFocusPractice(get().skillProfile, conceptId);
+    persistSkillProfile(skillProfile);
+    set({ skillProfile });
+  },
+
+  graduateConcepts: (conceptIds) => {
+    const skillProfile = graduateFocusConcepts(get().skillProfile, conceptIds);
+    persistSkillProfile(skillProfile);
+    set({ skillProfile });
+  },
+
+  processFocusedGrade: (eventId, gradeResult) => {
+    const result = processFocusGradeResult(get().skillProfile, gradeResult);
+    persistSkillProfile(result.profile);
+    set({ skillProfile: result.profile });
+    return {
+      graduated: result.graduated,
+      nextFocus: result.nextFocus,
+      rationale: result.rationale,
+    };
+  },
+
+  setLastFocusAssessment: (eventId) => {
+    const skillProfile = setLastFocusAssessment(get().skillProfile, eventId);
+    persistSkillProfile(skillProfile);
+    set({ skillProfile });
   },
 }));
 

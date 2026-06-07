@@ -7,6 +7,10 @@ import {
 } from "@/lib/concept-drill-mc";
 import { normalizeGeneratedReadingPayload } from "@/lib/normalize-generated-reading";
 import {
+  buildFocusedTestSubmissionPrompt,
+  buildFocusedWritingPrompt,
+} from "@/lib/focus-prompts";
+import {
   buildCelpipMockPrompt,
   buildGenerationPrompt,
   buildReadingPassageOnlyPrompt,
@@ -65,6 +69,12 @@ const requestSchema = z.object({
     .optional(),
   weakConcepts: z.array(conceptContextSchema).optional(),
   strongConcepts: z.array(conceptContextSchema).optional(),
+  mode: z
+    .enum(["standard", "focused", "focused_test_submission"])
+    .optional(),
+  focusConceptIds: z.array(z.string()).optional(),
+  focusedWritingTask: z.enum(["task_1", "task_2"]).optional(),
+  examPrompt: z.string().optional(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
 });
 
@@ -155,6 +165,10 @@ const mockWritingResponseSchema = z.object({
   examPrompt: z.string(),
 });
 
+const focusedTestSubmissionResponseSchema = z.object({
+  studentSubmission: z.string().min(20),
+});
+
 function parseJsonResponse(text: string): unknown {
   const cleaned = text
     .replace(/^```json\s*/i, "")
@@ -188,6 +202,50 @@ export async function POST(request: Request) {
       input.sessionMode === "concept" || input.focusSubTest === "Concept";
     const exercisesOnly = isConcept && input.conceptExercisesOnly;
     const readingPassageOnly = Boolean(input.readingPassageOnly);
+
+    if (input.mode === "focused_test_submission") {
+      if (!input.examPrompt?.trim()) {
+        return NextResponse.json(
+          { error: "examPrompt is required for test submission generation" },
+          { status: 400 },
+        );
+      }
+
+      const testPrompt = buildFocusedTestSubmissionPrompt(
+        input.examPrompt,
+        input.focusedWritingTask ?? "task_1",
+        (input.weakConcepts ?? []).map((c) => ({
+          id: c.id,
+          label: c.label,
+          evidence: c.evidence,
+        })),
+      );
+
+      const { text: testText, usage: testUsage } = await callGeminiWithJsonRetry(
+        testPrompt,
+        input.model,
+        "Return strictly valid JSON with a non-empty studentSubmission string (150-200 words). No prose, no markdown.",
+        "generate",
+        parseJsonResponse,
+        (parsed) =>
+          focusedTestSubmissionResponseSchema.safeParse(parsed).success,
+        {
+          describeValidationFailure: (parsed) => {
+            const result =
+              focusedTestSubmissionResponseSchema.safeParse(parsed);
+            return result.success ? undefined : formatZodIssues(result.error);
+          },
+        },
+      );
+
+      const validatedTest = focusedTestSubmissionResponseSchema.parse(
+        parseJsonResponse(testText),
+      );
+      return NextResponse.json({
+        studentSubmission: validatedTest.studentSubmission,
+        geminiUsage: testUsage,
+      });
+    }
 
     if (input.mockTarget) {
       const mockPrompt = buildCelpipMockPrompt({
@@ -245,7 +303,19 @@ export async function POST(request: Request) {
       });
     }
 
-    const prompt = readingPassageOnly
+    const isFocusedWriting =
+      input.mode === "focused" && input.focusSubTest === "Writing";
+
+    const prompt = isFocusedWriting
+      ? buildFocusedWritingPrompt(
+          input.focusedWritingTask ?? "task_1",
+          (input.weakConcepts ?? []).map((c) => ({
+            id: c.id,
+            label: c.label,
+            evidence: c.evidence,
+          })),
+        )
+      : readingPassageOnly
       ? buildReadingPassageOnlyPrompt(input.focusTarget, input.practiceType, {
           setNumber: input.readingSetNumber,
           weakConcepts: input.weakConcepts,

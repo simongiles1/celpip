@@ -30,6 +30,9 @@ interface WritingPracticeProps {
   onSubmit: () => void;
   submitting: boolean;
   disabled?: boolean;
+  onFillTestResponse?: () => void;
+  fillingTestResponse?: boolean;
+  defaultTab?: "instructions" | "focus" | "prompt" | "example";
 }
 
 const TARGET_MIN = 150;
@@ -53,6 +56,9 @@ export function WritingPractice({
   onSubmit,
   submitting,
   disabled,
+  onFillTestResponse,
+  fillingTestResponse,
+  defaultTab = "instructions",
 }: WritingPracticeProps) {
   const [questionStarted, setQuestionStarted] = useState(false);
   const timeLimitSeconds = getWritingExamTimeLimitSeconds(practiceType);
@@ -71,7 +77,7 @@ export function WritingPractice({
   const inputLocked = disabled || expired;
 
   return (
-    <Tabs defaultValue="instructions" className="flex min-h-0 flex-1 flex-col">
+    <Tabs defaultValue={defaultTab} className="flex min-h-0 w-full flex-1 flex-col">
       <TabsList className="grid h-auto w-full shrink-0 grid-cols-2 gap-1 sm:grid-cols-4">
         <TabsTrigger value="instructions" className="text-xs sm:text-sm">
           Instructions
@@ -150,18 +156,33 @@ export function WritingPractice({
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-2 flex shrink-0 items-center justify-between">
+              <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
                 <label className="text-sm font-medium text-gray-700">
                   Your Response
                 </label>
-                <span
-                  className={cn(
-                    "text-sm font-medium",
-                    inRange ? "text-green-600" : "text-amber-600",
+                <div className="flex flex-wrap items-center gap-2">
+                  {onFillTestResponse && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={onFillTestResponse}
+                      disabled={inputLocked || fillingTestResponse}
+                    >
+                      {fillingTestResponse
+                        ? "Generating…"
+                        : "Fill test response (AI)"}
+                    </Button>
                   )}
-                >
-                  {wordCount} words (target: {TARGET_MIN}–{TARGET_MAX})
-                </span>
+                  <span
+                    className={cn(
+                      "text-sm font-medium",
+                      inRange ? "text-green-600" : "text-amber-600",
+                    )}
+                  >
+                    {wordCount} words (target: {TARGET_MIN}–{TARGET_MAX})
+                  </span>
+                </div>
               </div>
               <div className="relative min-h-0 flex-1">
                 <Textarea

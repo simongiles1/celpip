@@ -572,7 +572,7 @@ export default function FeedbackPage() {
                 Choose photo or file
               </Button>
 
-              <div className="relative">
+              <div className="relative hidden sm:block">
                 <textarea
                   ref={pasteAreaRef}
                   readOnly
@@ -594,11 +594,11 @@ export default function FeedbackPage() {
                   className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-gray-500"
                 >
                   <ClipboardPaste className="h-7 w-7 text-gray-400" />
-                  <p className="font-medium text-gray-700">Tap here, then paste</p>
+                  <p className="font-medium text-gray-700">Click here, then paste</p>
                   <p>
                     {screenshotDataUrls.length >= MAX_SCREENSHOTS
                       ? "Maximum screenshots reached"
-                      : "On desktop you can also use Ctrl+V or Cmd+V after tapping here"}
+                      : "Use Ctrl+V or Cmd+V after clicking here"}
                   </p>
                 </div>
               </div>

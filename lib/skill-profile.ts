@@ -277,7 +277,7 @@ export function applySkillTags(
   profile: UserSkillProfile,
   params: {
     eventId: string;
-    track: "subtest" | "concept";
+    track: "subtest" | "concept" | "focus";
     band?: number;
     tags: SkillTag[];
   },

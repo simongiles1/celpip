@@ -8,6 +8,7 @@ import {
 } from "@/lib/concept-drill-mc";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
 import { normalizeGradingPayload } from "@/lib/normalize-grading-response";
+import { buildFocusedGradingPrompt } from "@/lib/focus-prompts";
 import {
   buildConceptGradingPrompt,
   buildConceptMcGradingPrompt,
@@ -43,6 +44,20 @@ const readingQuestionSchema = z.object({
   targetClbBand: z.number().int().min(6).max(12).optional(),
 });
 
+const focusHighlightSchema = z.object({
+  text: z.string(),
+  conceptId: z.string(),
+  polarity: z.enum(["correct", "mistake"]),
+  note: z.string(),
+});
+
+const focusRankSchema = z.object({
+  conceptId: z.string(),
+  estimatedScoreImpact: z.number().min(1).max(5),
+  estimatedEffort: z.number().min(1).max(5),
+  rationale: z.string(),
+});
+
 const skillTagSchema = z.object({
   conceptId: z.string(),
   label: z.string().optional(),
@@ -70,6 +85,9 @@ const requestSchema = z.object({
   conceptDrillItems: z.array(conceptDrillItemSchema).optional(),
   drillResponses: z.string().optional(),
   gradingFeedbackConstraints: z.string().optional(),
+  gradingMode: z.enum(["standard", "focused"]).optional(),
+  focusConceptIds: z.array(z.string()).optional(),
+  isInitialFocusAssessment: z.boolean().optional(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
 });
 
@@ -95,6 +113,8 @@ const responseSchema = z.object({
     }),
   ),
   skillTags: z.array(skillTagSchema).optional().default([]),
+  focusHighlights: z.array(focusHighlightSchema).optional().default([]),
+  focusRankings: z.array(focusRankSchema).optional().default([]),
   drillResults: z.array(drillResultSchema).optional(),
   readingResults: z
     .array(
@@ -258,6 +278,17 @@ export async function POST(request: Request) {
         input.drillResponses ?? "",
         submission,
         input.gradingFeedbackConstraints,
+      );
+    } else if (input.gradingMode === "focused") {
+      const submission =
+        typeof input.studentSubmission === "string"
+          ? input.studentSubmission
+          : JSON.stringify(input.studentSubmission);
+      prompt = buildFocusedGradingPrompt(
+        input.examPrompt,
+        submission,
+        input.focusConceptIds ?? [],
+        Boolean(input.isInitialFocusAssessment),
       );
     } else {
       const submission =

@@ -248,5 +248,58 @@ export function normalizeGradingPayload(parsed: unknown): unknown {
   if (writingResult) next.writingResult = writingResult;
   else delete next.writingResult;
 
+  if (Array.isArray(next.focusHighlights)) {
+    next.focusHighlights = next.focusHighlights
+      .map((item) => normalizeFocusHighlight(item))
+      .filter((item): item is Record<string, unknown> => item != null);
+  } else if (next.focusHighlights == null) {
+    next.focusHighlights = [];
+  }
+
+  if (Array.isArray(next.focusRankings)) {
+    next.focusRankings = next.focusRankings
+      .map((item) => normalizeFocusRank(item))
+      .filter((item): item is Record<string, unknown> => item != null);
+  } else if (next.focusRankings == null) {
+    next.focusRankings = [];
+  }
+
   return next;
+}
+
+function normalizeFocusHighlight(
+  raw: unknown,
+): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const text = typeof item.text === "string" ? item.text.trim() : "";
+  const conceptId =
+    typeof item.conceptId === "string" ? item.conceptId.trim() : "";
+  const note = typeof item.note === "string" ? item.note.trim() : "";
+  const polarityRaw =
+    typeof item.polarity === "string" ? item.polarity.trim().toLowerCase() : "";
+  const polarity =
+    polarityRaw === "correct" || polarityRaw === "mistake"
+      ? polarityRaw
+      : undefined;
+  if (!text || !conceptId || !polarity) return null;
+  return { text, conceptId, polarity, note: note || "Focus concept usage." };
+}
+
+function normalizeFocusRank(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const conceptId =
+    typeof item.conceptId === "string" ? item.conceptId.trim() : "";
+  const rationale =
+    typeof item.rationale === "string" ? item.rationale.trim() : "";
+  const impact = coerceInteger(item.estimatedScoreImpact, 1, 5);
+  const effort = coerceInteger(item.estimatedEffort, 1, 5);
+  if (!conceptId || !rationale || impact == null || effort == null) return null;
+  return {
+    conceptId,
+    estimatedScoreImpact: impact,
+    estimatedEffort: effort,
+    rationale,
+  };
 }

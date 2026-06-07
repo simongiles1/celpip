@@ -80,11 +80,13 @@ export interface SkillTag {
   evidence: string;
 }
 
+export type SkillObservationTrack = "subtest" | "concept" | "focus";
+
 export interface SkillObservation {
   id: string;
   conceptId: string;
   eventId: string;
-  track: "subtest" | "concept";
+  track: SkillObservationTrack;
   polarity: "strength" | "weakness";
   evidence: string;
   bandAtTime?: number;
@@ -102,10 +104,55 @@ export interface UserConceptScore {
   mastery: number;
 }
 
+export interface FocusConceptBaseline {
+  mastery: number;
+  instanceCount: number;
+}
+
+export interface FocusHistoryEntry {
+  conceptIds: string[];
+  startedAt: string;
+  graduatedAt?: string;
+  rationale?: string;
+}
+
+export interface FocusSelectionRationale {
+  conceptId: string;
+  score: number;
+  rationale: string;
+  estimatedScoreImpact: number;
+  estimatedEffort: number;
+}
+
+export interface FocusModelState {
+  activeFocus: string[];
+  focusHistory: FocusHistoryEntry[];
+  practiceCompleted: Record<string, number>;
+  lastAssessmentEventId?: string;
+  baselineByConcept: Record<string, FocusConceptBaseline>;
+  lastSelectionRationale?: FocusSelectionRationale[];
+}
+
+export interface FocusHighlight {
+  text: string;
+  conceptId: string;
+  polarity: "correct" | "mistake";
+  note: string;
+}
+
+export interface FocusRankEntry {
+  conceptId: string;
+  estimatedScoreImpact: number;
+  estimatedEffort: number;
+  rationale: string;
+}
+
 export interface UserSkillProfile {
   observations: SkillObservation[];
   conceptScores: UserConceptScore[];
   discoveredConcepts: ConceptDefinition[];
+  /** Focused Mastery loop state (separate page, shared skill data). */
+  focusModel?: FocusModelState;
   /**
    * @deprecated Use writingConceptStats. Migrated on hydrate.
    * Exercise-level counts only (max 1 per concept per writing exercise).
@@ -336,6 +383,8 @@ export interface GradeResponse {
   constructiveCriticism: string[];
   grammarCorrections: GrammarCorrection[];
   skillTags?: SkillTag[];
+  focusHighlights?: FocusHighlight[];
+  focusRankings?: FocusRankEntry[];
   drillResults?: ConceptDrillResult[];
   readingResults?: ReadingQuestionResult[];
   writingResult?: ConceptWritingResult;

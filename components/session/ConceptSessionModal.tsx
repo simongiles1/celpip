@@ -44,6 +44,7 @@ const GENERATE_FETCH_TIMEOUT_MS = 95_000;
 interface ConceptSessionModalProps {
   conceptId: string | null;
   onClose: () => void;
+  onDrillCompleted?: (conceptId: string) => void;
 }
 
 function contentFromCache(cached: GeneratedContent): GenerateResponse | null {
@@ -67,7 +68,11 @@ function resolveSetEventId(
   return conceptSetEventId(conceptId, setNumber);
 }
 
-export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalProps) {
+export function ConceptSessionModal({
+  conceptId,
+  onClose,
+  onDrillCompleted,
+}: ConceptSessionModalProps) {
   const skillProfile = useStudyStore((s) => s.skillProfile);
   const geminiModel = useStudyStore((s) => s.geminiModel);
   const generated = useStudyStore((s) => s.generated);
@@ -434,6 +439,7 @@ export function ConceptSessionModal({ conceptId, onClose }: ConceptSessionModalP
         result,
         "concept",
       );
+      onDrillCompleted?.(concept.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Grading failed");
     } finally {
