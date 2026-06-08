@@ -70,11 +70,13 @@ export function PracticeDistributionChart({
               tickFormatter={(v) => `${v}%`}
             />
             <Tooltip
-              formatter={(value: number, name: string) => {
+              formatter={(value, name) => {
+                const numeric =
+                  typeof value === "number" ? value : Number(value ?? 0);
                 if (name === "Assigned share") {
-                  return [`${value.toFixed(1)}%`, name];
+                  return [`${numeric.toFixed(1)}%`, name];
                 }
-                return [`${value.toFixed(1)}%`, "Gaussian curve"];
+                return [`${numeric.toFixed(1)}%`, "Gaussian curve"];
               }}
               labelFormatter={(_, payload) => {
                 const row = payload?.[0]?.payload as

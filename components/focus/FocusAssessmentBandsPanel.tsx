@@ -89,7 +89,7 @@ export function FocusAssessmentBandsPanel() {
               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
               <YAxis domain={[1, 12]} tick={{ fontSize: 12 }} />
               <Tooltip
-                formatter={(value: number) => [`Band ${value}`, "CLB"]}
+                formatter={(value) => [`Band ${value ?? "—"}`, "CLB"]}
                 labelFormatter={(label) => String(label)}
               />
               <Legend />
