@@ -24,7 +24,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { FeedbackTicket, FeedbackTicketType } from "@/lib/types";
+import { FeedbackTicketThread } from "@/components/feedback/FeedbackTicketThread";
+import type {
+  FeedbackTicket,
+  FeedbackTicketMessage,
+  FeedbackTicketType,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type FilterView = "all" | FeedbackTicketType;
@@ -59,9 +64,11 @@ export default function FeedbackPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLTextAreaElement>(null);
 
-  const loadTickets = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  const loadTickets = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
     try {
       const response = await fetch("/api/feedback");
       if (!response.ok) {
@@ -70,15 +77,56 @@ export default function FeedbackPage() {
       const data = (await response.json()) as { tickets: FeedbackTicket[] };
       setTickets(data.tickets);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load tickets");
+      if (!options?.silent) {
+        setLoadError(
+          err instanceof Error ? err.message : "Failed to load tickets",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void loadTickets();
   }, [loadTickets]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (document.visibilityState === "visible") {
+        void loadTickets({ silent: true });
+      }
+    };
+
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadTickets({ silent: true });
+      }
+    }, 15_000);
+
+    return () => {
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+      window.clearInterval(intervalId);
+    };
+  }, [loadTickets]);
+
+  const handleTicketMessageSent = useCallback(
+    (ticketId: string, message: FeedbackTicketMessage) => {
+      setTickets((current) =>
+        current.map((ticket) =>
+          ticket.id === ticketId
+            ? { ...ticket, messages: [...ticket.messages, message] }
+            : ticket,
+        ),
+      );
+    },
+    [],
+  );
 
   const filteredTickets = useMemo(() => {
     if (filter === "all") return tickets;
@@ -403,29 +451,48 @@ export default function FeedbackPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="whitespace-pre-wrap text-sm text-gray-700">
-                  {ticket.description}
-                </p>
-                {ticket.screenshotDataUrls.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-                      <ImageIcon className="h-3.5 w-3.5" />
-                      Screenshots ({ticket.screenshotDataUrls.length})
+              <CardContent>
+                <div
+                  className={cn(
+                    "flex flex-col gap-4",
+                    ticket.screenshotDataUrls.length > 0 &&
+                      "lg:flex-row lg:items-stretch",
+                  )}
+                >
+                  {ticket.screenshotDataUrls.length > 0 && (
+                    <div className="min-w-0 space-y-2 lg:flex-1">
+                      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        Screenshots ({ticket.screenshotDataUrls.length})
+                      </div>
+                      <div className="grid gap-3">
+                        {ticket.screenshotDataUrls.map((screenshot, index) => (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            key={`${ticket.id}-screenshot-${index}`}
+                            src={screenshot}
+                            alt={`Screenshot ${index + 1} for ${ticket.title}`}
+                            className="max-h-80 w-full rounded-md border border-gray-200 object-contain"
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {ticket.screenshotDataUrls.map((screenshot, index) => (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          key={`${ticket.id}-screenshot-${index}`}
-                          src={screenshot}
-                          alt={`Screenshot ${index + 1} for ${ticket.title}`}
-                          className="max-h-80 w-full rounded-md border border-gray-200 object-contain"
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                  )}
+                  <FeedbackTicketThread
+                    ticketId={ticket.id}
+                    description={ticket.description}
+                    createdAt={ticket.createdAt}
+                    messages={ticket.messages}
+                    onMessageSent={(message) =>
+                      handleTicketMessageSent(ticket.id, message)
+                    }
+                    className={
+                      ticket.screenshotDataUrls.length > 0
+                        ? "min-w-0 lg:flex-1"
+                        : undefined
+                    }
+                  />
+                </div>
               </CardContent>
             </Card>
           ))

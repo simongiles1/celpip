@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSelectedEvent, useStudyStore } from "@/hooks/useStudyStore";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import type { VocabularyProgress, VocabularyWord } from "@/lib/types";
+import { collectUsedVocabularyWords } from "@/lib/vocabulary-history";
 import { prepareVocabularyWordsForPractice } from "@/lib/vocabulary-progress";
 import { hasValidVocabularyPractice } from "@/lib/vocabulary-validation";
 
@@ -33,6 +34,7 @@ function VocabularyModalContent({
   const dailyVocabularyWordCount = useStudyStore(
     (s) => s.dailyVocabularyWordCount,
   );
+  const generated = useStudyStore((s) => s.generated);
   const getGeneratedForEvent = useStudyStore((s) => s.getGeneratedForEvent);
   const addGenerated = useStudyStore((s) => s.addGenerated);
   const updateVocabularyProgress = useStudyStore((s) => s.updateVocabularyProgress);
@@ -69,6 +71,10 @@ function VocabularyModalContent({
             wordCount: dailyVocabularyWordCount,
             sessionDate,
             model: geminiModel,
+            excludeWords: collectUsedVocabularyWords(
+              generated,
+              replaceCache ? undefined : eventId,
+            ),
           }),
         });
         const data = (await response.json()) as {
@@ -108,6 +114,7 @@ function VocabularyModalContent({
       addGenerated,
       dailyVocabularyWordCount,
       eventId,
+      generated,
       geminiModel,
       onUsageChange,
       removeGeneratedForEvent,

@@ -394,6 +394,13 @@ export interface GradeResponse {
 export type FeedbackTicketType = "bug" | "feature";
 export type FeedbackTicketStatus = "open" | "closed";
 
+export interface FeedbackTicketMessage {
+  id: string;
+  ticketId: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface FeedbackTicket {
   id: string;
   type: FeedbackTicketType;
@@ -402,4 +409,5 @@ export interface FeedbackTicket {
   description: string;
   screenshotDataUrls: string[];
   createdAt: string;
+  messages: FeedbackTicketMessage[];
 }

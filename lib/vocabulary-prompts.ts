@@ -1,7 +1,18 @@
 export function buildVocabularyPrompt(
   wordCount: number,
   sessionDate: string,
+  excludeWords: string[] = [],
 ): string {
+  const exclusionBlock =
+    excludeWords.length > 0
+      ? `
+Previously used words — do NOT reuse any of these (including close variants, plural forms, or the same root with a different suffix):
+${excludeWords.map((word) => `- ${word}`).join("\n")}
+
+Every word in your response must be completely new and must not appear in the list above.
+`
+      : "";
+
   return `You are a CELPIP writing coach. Generate exactly ${wordCount} vocabulary items for a daily study session.
 
 Target: CLB 9 (Canadian Language Benchmark 9) — the level needed for strong CELPIP writing scores.
@@ -12,7 +23,7 @@ Learner profile:
 - Canadian English register; neutral-to-formal tone.
 
 Session date seed (vary word themes by date — do not repeat generic lists): ${sessionDate}
-
+${exclusionBlock}
 Requirements for each word:
 1. "word" — a useful CLB-9-level word or short phrase (1-3 words max) for formal writing.
 2. "partOfSpeech" — e.g. verb, noun, adjective, collocation.

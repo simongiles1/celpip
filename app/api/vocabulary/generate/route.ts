@@ -2,6 +2,7 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
+import { findExcludedVocabularyOverlap } from "@/lib/vocabulary-history";
 import { buildVocabularyPrompt } from "@/lib/vocabulary-prompts";
 import { shuffleVocabularyWords } from "@/lib/vocabulary-shuffle";
 import {
@@ -13,6 +14,7 @@ const requestSchema = z.object({
   wordCount: z.number().int().min(1).max(20),
   sessionDate: z.string(),
   model: z.enum(GEMINI_MODELS).default(DEFAULT_GEMINI_MODEL),
+  excludeWords: z.array(z.string()).max(500).optional().default([]),
 });
 
 function parseJson(text: string): unknown {
@@ -33,8 +35,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const { wordCount, sessionDate, model } = parsed.data;
-    const prompt = buildVocabularyPrompt(wordCount, sessionDate);
+    const { wordCount, sessionDate, model, excludeWords } = parsed.data;
+    const prompt = buildVocabularyPrompt(wordCount, sessionDate, excludeWords);
 
     const { text, usage } = await callGeminiWithJsonRetry(
       prompt,
@@ -46,7 +48,11 @@ export async function POST(request: Request) {
         const result = vocabularyResponseSchema.safeParse(value);
         if (!result.success) return false;
         if (result.data.words.length !== wordCount) return false;
-        return validateWordQuestions(value) === undefined;
+        if (validateWordQuestions(value) !== undefined) return false;
+        return (
+          findExcludedVocabularyOverlap(result.data.words, excludeWords) ===
+          undefined
+        );
       },
       {
         describeValidationFailure: (value) => {
@@ -55,7 +61,9 @@ export async function POST(request: Request) {
           if (result.data.words.length !== wordCount) {
             return `Expected exactly ${wordCount} words, got ${result.data.words.length}.`;
           }
-          return validateWordQuestions(value);
+          const questionError = validateWordQuestions(value);
+          if (questionError) return questionError;
+          return findExcludedVocabularyOverlap(result.data.words, excludeWords);
         },
       },
     );

@@ -11,6 +11,7 @@ import type {
   AppSettings,
   ConceptCustomization,
   FeedbackTicket,
+  FeedbackTicketMessage,
   GeneratedContent,
   GradedSession,
   StudyEvent,
@@ -118,6 +119,16 @@ function initSchema(database: Database.Database): void {
       screenshot_data_url TEXT,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS feedback_ticket_messages (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL REFERENCES feedback_tickets(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_feedback_ticket_messages_ticket_id
+      ON feedback_ticket_messages(ticket_id);
   `);
 
   migrateGeminiUsageColumns(database);
@@ -130,6 +141,28 @@ function initSchema(database: Database.Database): void {
   migrateVocabularyWordsColumn(database);
   migrateVocabularyProgressColumn(database);
   migrateFeedbackTicketStatusColumn(database);
+  migrateFeedbackTicketMessagesTable(database);
+}
+
+function migrateFeedbackTicketMessagesTable(database: Database.Database): void {
+  const tables = database
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'feedback_ticket_messages'`,
+    )
+    .all() as Array<{ name: string }>;
+  if (tables.length > 0) return;
+
+  database.exec(`
+    CREATE TABLE feedback_ticket_messages (
+      id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL REFERENCES feedback_tickets(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_feedback_ticket_messages_ticket_id
+      ON feedback_ticket_messages(ticket_id);
+  `);
 }
 
 function migrateFeedbackTicketStatusColumn(database: Database.Database): void {
@@ -680,7 +713,37 @@ export function saveConceptCustomizations(
     .run({ data: JSON.stringify(items) });
 }
 
+function loadFeedbackTicketMessagesByTicketId(): Map<string, FeedbackTicketMessage[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, ticket_id, body, created_at
+       FROM feedback_ticket_messages
+       ORDER BY created_at ASC`,
+    )
+    .all() as Array<{
+    id: string;
+    ticket_id: string;
+    body: string;
+    created_at: string;
+  }>;
+
+  const messagesByTicketId = new Map<string, FeedbackTicketMessage[]>();
+  for (const row of rows) {
+    const message: FeedbackTicketMessage = {
+      id: row.id,
+      ticketId: row.ticket_id,
+      body: row.body,
+      createdAt: row.created_at,
+    };
+    const existing = messagesByTicketId.get(row.ticket_id) ?? [];
+    existing.push(message);
+    messagesByTicketId.set(row.ticket_id, existing);
+  }
+  return messagesByTicketId;
+}
+
 export function loadFeedbackTickets(): FeedbackTicket[] {
+  const messagesByTicketId = loadFeedbackTicketMessagesByTicketId();
   const rows = getDb()
     .prepare(
       `SELECT id, type, status, title, description, screenshot_data_url,
@@ -709,11 +772,12 @@ export function loadFeedbackTickets(): FeedbackTicket[] {
       row.screenshot_data_url,
     ),
     createdAt: row.created_at,
+    messages: messagesByTicketId.get(row.id) ?? [],
   }));
 }
 
 export function insertFeedbackTicket(
-  ticket: Omit<FeedbackTicket, "id" | "createdAt" | "status"> & {
+  ticket: Omit<FeedbackTicket, "id" | "createdAt" | "status" | "messages"> & {
     id?: string;
     createdAt?: string;
     status?: FeedbackTicket["status"];
@@ -727,6 +791,7 @@ export function insertFeedbackTicket(
     description: ticket.description,
     screenshotDataUrls: ticket.screenshotDataUrls,
     createdAt: ticket.createdAt ?? new Date().toISOString(),
+    messages: [],
   };
 
   getDb()
@@ -767,6 +832,32 @@ export function updateFeedbackTicketStatus(
     .run({ id, status });
 
   return loadFeedbackTickets().find((ticket) => ticket.id === id) ?? null;
+}
+
+export function insertFeedbackTicketMessage(
+  ticketId: string,
+  body: string,
+): FeedbackTicketMessage | null {
+  const existing = getDb()
+    .prepare(`SELECT id FROM feedback_tickets WHERE id = @id`)
+    .get({ id: ticketId }) as { id: string } | undefined;
+  if (!existing) return null;
+
+  const record: FeedbackTicketMessage = {
+    id: `feedback-msg-${Date.now()}`,
+    ticketId,
+    body,
+    createdAt: new Date().toISOString(),
+  };
+
+  getDb()
+    .prepare(
+      `INSERT INTO feedback_ticket_messages (id, ticket_id, body, created_at)
+       VALUES (@id, @ticketId, @body, @createdAt)`,
+    )
+    .run(record);
+
+  return record;
 }
 
 export function deleteFeedbackTicket(id: string): boolean {
@@ -893,6 +984,7 @@ export function clearAllData(): void {
     DELETE FROM graded_sessions;
     DELETE FROM skill_profile;
     DELETE FROM concept_customizations;
+    DELETE FROM feedback_ticket_messages;
     DELETE FROM feedback_tickets;
   `);
 }
