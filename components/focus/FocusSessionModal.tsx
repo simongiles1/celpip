@@ -75,9 +75,9 @@ export function FocusSessionModal({
   const geminiModel = useStudyStore((s) => s.geminiModel);
   const skillProfile = useStudyStore((s) => s.skillProfile);
   const addGenerated = useStudyStore((s) => s.addGenerated);
-  const addGraded = useStudyStore((s) => s.addGraded);
-  const processFocusedGrade = useStudyStore((s) => s.processFocusedGrade);
-  const setLastFocusAssessment = useStudyStore((s) => s.setLastFocusAssessment);
+  const completeFocusedAssessment = useStudyStore(
+    (s) => s.completeFocusedAssessment,
+  );
 
   const [eventId] = useState(() => `evt-focus-assess-${Date.now()}`);
   const [sessionConfig, setSessionConfig] = useState<FocusSessionConfig | null>(
@@ -274,11 +274,12 @@ export function FocusSessionModal({
       const analysis = buildFocusGradeAnalysis(
         useStudyStore.getState().skillProfile,
         result,
+        useStudyStore.getState().graded,
       );
       setGradeResult(result);
       setGradeAnalysis(analysis);
 
-      addGraded(
+      const focusOutcome = await completeFocusedAssessment(
         {
           eventId,
           curriculumUnitId: FOCUS_UNIT_ID,
@@ -294,11 +295,7 @@ export function FocusSessionModal({
           examPrompt: content.examPrompt,
         },
         result,
-        "focus",
       );
-
-      setLastFocusAssessment(eventId);
-      const focusOutcome = processFocusedGrade(eventId, result);
       setGraduatedIds(focusOutcome.graduated);
       onGradeComplete?.({
         grade: result,

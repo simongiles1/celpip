@@ -31,6 +31,7 @@ import {
   persistPreferences,
   persistSkillProfile,
   saveAllData,
+  saveSkillProfile,
 } from "@/lib/storage";
 import { migrateReadingAnswerIndices } from "@/lib/repair-reading-answer-indices";
 import {
@@ -70,6 +71,7 @@ interface StudyStore {
   selectedConceptId: string | null;
 
   hydrate: () => Promise<void>;
+  refreshFromServer: () => Promise<void>;
   initializeProgram: (examDate: string) => Promise<void>;
   rebuildSchedule: () => Promise<void>;
   resetStudyProgram: () => Promise<void>;
@@ -96,6 +98,14 @@ interface StudyStore {
     gradeResult?: Pick<GradeResponse, "skillTags">,
     track?: "subtest" | "concept" | "focus",
   ) => void;
+  completeFocusedAssessment: (
+    session: GradedSession,
+    gradeResult: Pick<GradeResponse, "skillTags" | "focusRankings">,
+  ) => Promise<{
+    graduated: string[];
+    nextFocus: string[];
+    rationale: import("@/lib/types").FocusSelectionRationale[];
+  }>;
   getGradedForEvent: (eventId: string) => GradedSession | undefined;
   setReadingQuestionChatMessages: (
     passageEventId: string,
@@ -167,6 +177,76 @@ function currentPreferences(get: () => StudyStore): UserPreferences {
   };
 }
 
+type LoadedStoreSlice = Pick<
+  StudyStore,
+  | "settings"
+  | "geminiModel"
+  | "preferredReadingClbBand"
+  | "dailyVocabularyWordCount"
+  | "events"
+  | "generated"
+  | "graded"
+  | "skillProfile"
+  | "conceptCustomizations"
+>;
+
+async function loadStudyStateFromServer(options: {
+  persistRepairs: boolean;
+}): Promise<LoadedStoreSlice> {
+  const data = await loadAllData();
+  const migrated = migrateReadingAnswerIndices({
+    generated: data.generated,
+    graded: data.graded,
+  });
+  if (options.persistRepairs && migrated.changed) {
+    await saveAllData({
+      generated: migrated.generated,
+      graded: migrated.graded,
+    });
+  }
+
+  let events = data.events;
+  if (data.settings) {
+    const vocabResult = ensureVocabularyEvents(events, data.settings);
+    if (vocabResult.changed) {
+      events = vocabResult.events;
+      if (options.persistRepairs) {
+        await saveAllData({ events });
+      }
+    }
+  }
+
+  let skillProfile = withWritingConceptFrequency(
+    data.skillProfile,
+    migrated.graded,
+  );
+  const withFocus = withFocusModel(skillProfile);
+  if (withFocus !== skillProfile) {
+    skillProfile = withFocus;
+    if (options.persistRepairs) {
+      await saveSkillProfile(skillProfile);
+    }
+  } else if (options.persistRepairs && skillProfile !== data.skillProfile) {
+    await saveSkillProfile(skillProfile);
+  }
+
+  return {
+    settings: data.settings,
+    geminiModel: data.preferences.geminiModel,
+    preferredReadingClbBand: clampClbBand(
+      data.preferences.preferredReadingClbBand,
+    ),
+    dailyVocabularyWordCount: clampVocabularyWordCount(
+      data.preferences.dailyVocabularyWordCount,
+    ),
+    events,
+    generated: migrated.generated,
+    graded: migrated.graded,
+    skillProfile,
+    conceptCustomizations: data.conceptCustomizations ?? [],
+  };
+}
+
 export const useStudyStore = create<StudyStore>((set, get) => ({
   hydrated: false,
   settings: null,
@@ -187,55 +267,14 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   selectedConceptId: null,
 
   hydrate: async () => {
-    const data = await loadAllData();
-    const migrated = migrateReadingAnswerIndices({
-      generated: data.generated,
-      graded: data.graded,
-    });
-    if (migrated.changed) {
-      await saveAllData({
-        generated: migrated.generated,
-        graded: migrated.graded,
-      });
-    }
+    const slice = await loadStudyStateFromServer({ persistRepairs: true });
+    set({ hydrated: true, ...slice });
+  },
 
-    let events = data.events;
-    if (data.settings) {
-      const vocabResult = ensureVocabularyEvents(events, data.settings);
-      if (vocabResult.changed) {
-        events = vocabResult.events;
-        await saveAllData({ events });
-      }
-    }
-
-    let skillProfile = withWritingConceptFrequency(
-      data.skillProfile,
-      migrated.graded,
-    );
-    const withFocus = withFocusModel(skillProfile);
-    if (withFocus !== skillProfile) {
-      skillProfile = withFocus;
-      await persistSkillProfile(skillProfile);
-    } else if (skillProfile !== data.skillProfile) {
-      await persistSkillProfile(skillProfile);
-    }
-
-    set({
-      hydrated: true,
-      settings: data.settings,
-      geminiModel: data.preferences.geminiModel,
-      preferredReadingClbBand: clampClbBand(
-        data.preferences.preferredReadingClbBand,
-      ),
-      dailyVocabularyWordCount: clampVocabularyWordCount(
-        data.preferences.dailyVocabularyWordCount,
-      ),
-      events,
-      generated: migrated.generated,
-      graded: migrated.graded,
-      skillProfile,
-      conceptCustomizations: data.conceptCustomizations ?? [],
-    });
+  refreshFromServer: async () => {
+    if (!get().hydrated) return;
+    const slice = await loadStudyStateFromServer({ persistRepairs: false });
+    set(slice);
   },
 
   rebuildSchedule: async () => {
@@ -439,6 +478,42 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     }
   },
 
+  completeFocusedAssessment: async (session, gradeResult) => {
+    const previousCount = get().graded.length;
+    const graded = [
+      ...get().graded.filter((g) => g.eventId !== session.eventId),
+      session,
+    ];
+
+    let skillProfile = get().skillProfile;
+    if (gradeResult.skillTags?.length) {
+      skillProfile = applySkillTags(skillProfile, {
+        eventId: session.eventId,
+        track: "focus",
+        band: session.estimatedBand,
+        tags: gradeResult.skillTags,
+      });
+    }
+    skillProfile = withWritingConceptFrequency(skillProfile, graded);
+    skillProfile = setLastFocusAssessment(skillProfile, session.eventId);
+    const focusResult = processFocusGradeResult(skillProfile, gradeResult, graded);
+    skillProfile = focusResult.profile;
+
+    await saveAllData({ graded, skillProfile });
+
+    set({ graded, skillProfile });
+
+    if (shouldReconcileConceptInjections(graded.length, previousCount)) {
+      get().reconcileConceptInjections();
+    }
+
+    return {
+      graduated: focusResult.graduated,
+      nextFocus: focusResult.nextFocus,
+      rationale: focusResult.rationale,
+    };
+  },
+
   getGradedForEvent: (eventId) =>
     get().graded.find((g) => g.eventId === eventId),
 
@@ -573,7 +648,11 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   },
 
   processFocusedGrade: (eventId, gradeResult) => {
-    const result = processFocusGradeResult(get().skillProfile, gradeResult);
+    const result = processFocusGradeResult(
+      get().skillProfile,
+      gradeResult,
+      get().graded,
+    );
     persistSkillProfile(result.profile);
     set({ skillProfile: result.profile });
     return {

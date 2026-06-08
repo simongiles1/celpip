@@ -1,9 +1,11 @@
 import { getConceptPrior } from "@/data/concept-priors";
+import { computeConceptMistakeStats } from "@/lib/focus-priority";
 import { getConceptById } from "@/lib/skill-profile";
 import type {
   FocusRankEntry,
   FocusSelectionRationale,
   FocusModelState,
+  GradedSession,
   SkillTag,
   UserSkillProfile,
 } from "@/lib/types";
@@ -141,15 +143,27 @@ export function buildFocusCandidates(
   weaknesses: SkillTag[],
   profile: UserSkillProfile,
   aiRanks: FocusRankEntry[] = [],
+  graded: GradedSession[] = [],
 ): FocusCandidate[] {
-  const counts = countWeaknessInstances(weaknesses, profile);
+  const draftCounts = countWeaknessInstances(weaknesses, profile);
+  const historical = computeConceptMistakeStats(profile, graded);
   const aiById = new Map(aiRanks.map((rank) => [rank.conceptId, rank]));
 
-  return Array.from(counts.entries()).map(([conceptId, instanceCount]) => ({
-    conceptId,
-    instanceCount,
-    aiRank: aiById.get(conceptId),
-  }));
+  const conceptIds = new Set([
+    ...draftCounts.keys(),
+    ...historical.keys(),
+    ...aiRanks.map((rank) => rank.conceptId),
+  ]);
+
+  return Array.from(conceptIds).map((conceptId) => {
+    const draftCount = draftCounts.get(conceptId) ?? 0;
+    const historyCount = historical.get(conceptId)?.totalInstances ?? 0;
+    return {
+      conceptId,
+      instanceCount: Math.max(draftCount, historyCount),
+      aiRank: aiById.get(conceptId),
+    };
+  });
 }
 
 export function evaluateGraduation(

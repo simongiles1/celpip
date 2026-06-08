@@ -5,11 +5,24 @@ import { useStudyStore } from "@/hooks/useStudyStore";
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const hydrate = useStudyStore((s) => s.hydrate);
+  const refreshFromServer = useStudyStore((s) => s.refreshFromServer);
   const hydrated = useStudyStore((s) => s.hydrated);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshFromServer();
+      }
+    };
+
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    return () =>
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+  }, [refreshFromServer]);
 
   if (!hydrated) {
     return (

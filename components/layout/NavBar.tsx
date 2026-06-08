@@ -65,7 +65,7 @@ export function NavBar() {
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
-    <header className="relative border-b border-gray-200 bg-white">
+    <header className="sticky top-0 z-50 border-b border-gray-200 bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
         <div className="min-w-0">
           <Link href="/" className="text-lg font-bold text-gray-900">

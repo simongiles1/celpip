@@ -7,6 +7,7 @@ import { weaknessTagsFromGrade } from "@/lib/focus-model";
 import type {
   FocusSelectionRationale,
   GradeResponse,
+  GradedSession,
   UserSkillProfile,
 } from "@/lib/types";
 
@@ -26,12 +27,14 @@ export interface FocusGradeAnalysis {
 export function buildFocusGradeAnalysis(
   profile: UserSkillProfile,
   gradeResult: Pick<GradeResponse, "skillTags" | "focusRankings">,
+  graded: GradedSession[] = [],
 ): FocusGradeAnalysis {
   const weaknesses = weaknessTagsFromGrade(profile, gradeResult.skillTags);
   const candidates = buildFocusCandidates(
     (gradeResult.skillTags ?? []).filter((tag) => tag.polarity === "weakness"),
     profile,
     gradeResult.focusRankings ?? [],
+    graded,
   );
   const rankedCandidates = rankAllFocusCandidates(candidates, profile);
   const { selected, rationale } = selectFocusSet(candidates, profile);

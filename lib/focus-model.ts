@@ -10,6 +10,7 @@ import type {
   FocusModelState,
   FocusSelectionRationale,
   GradeResponse,
+  GradedSession,
   SkillTag,
   UserSkillProfile,
 } from "@/lib/types";
@@ -140,6 +141,7 @@ export function processFocusGradeResult(
     GradeResponse,
     "skillTags" | "focusRankings"
   >,
+  graded: GradedSession[] = [],
 ): {
   profile: UserSkillProfile;
   graduated: string[];
@@ -173,6 +175,7 @@ export function processFocusGradeResult(
     weaknesses,
     nextProfile,
     gradeResult.focusRankings ?? [],
+    graded,
   );
 
   const { selected, rationale } = selectFocusSet(candidates, nextProfile);
