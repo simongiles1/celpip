@@ -11,6 +11,7 @@ import { ConceptCreateChatPanel } from "@/components/concepts/ConceptCreateChatP
 import { ConceptSessionModal } from "@/components/session/ConceptSessionModal";
 import { useConceptCreateChat } from "@/hooks/useConceptCreateChat";
 import { useStudyStore } from "@/hooks/useStudyStore";
+import { getGeneratedSetsForConcept } from "@/lib/concept-question-sets";
 import {
   getAllConcepts,
   getObservationsForConcept,
@@ -85,6 +86,7 @@ function partToMockSpecId(part: CelpipReadingPart): string {
 export default function ConceptsPage() {
   const skillProfile = useStudyStore((s) => s.skillProfile);
   const graded = useStudyStore((s) => s.graded);
+  const generated = useStudyStore((s) => s.generated);
   const scheduleConceptDrill = useStudyStore((s) => s.scheduleConceptDrill);
   const [activeConceptId, setActiveConceptId] = useState<string | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
@@ -115,6 +117,17 @@ export default function ConceptsPage() {
   const strong = getStrongConcepts(skillProfile, 5);
   const recommended = getRecommendedConcepts(skillProfile, 3);
   const allConcepts = getAllConcepts(skillProfile);
+
+  const questionSetCountByConcept = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const concept of allConcepts) {
+      counts.set(
+        concept.id,
+        getGeneratedSetsForConcept(generated, concept.id).length,
+      );
+    }
+    return counts;
+  }, [allConcepts, generated]);
 
   const weakParts = useMemo<
     Array<{ part: CelpipReadingPart; bucket: AccuracyBucket }>
@@ -373,6 +386,12 @@ export default function ConceptsPage() {
                 const score = skillProfile.conceptScores.find(
                   (s) => s.conceptId === concept.id,
                 );
+                const questionSetCount =
+                  questionSetCountByConcept.get(concept.id) ?? 0;
+                const questionSetLabel =
+                  questionSetCount === 1
+                    ? "1 question set"
+                    : `${questionSetCount} question sets`;
                 return (
                   <div
                     key={concept.id}
@@ -382,7 +401,8 @@ export default function ConceptsPage() {
                       <p className="text-sm font-medium">{concept.label}</p>
                       <p className="text-xs text-gray-500">
                         {concept.source === "discovered" ? "Discovered" : "Core"} ·{" "}
-                        {score ? `${score.mastery}%` : "Not yet observed"}
+                        {score ? `${score.mastery}%` : "Not yet observed"} ·{" "}
+                        {questionSetLabel}
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-2">

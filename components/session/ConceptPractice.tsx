@@ -432,26 +432,32 @@ export function ConceptPractice({
           {renderChatPanel(exercisesChat)}
           <div className="shrink-0 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                {questionSets.map((set) => (
-                  <Button
-                    key={set.setNumber}
-                    type="button"
-                    size="sm"
-                    variant={set.isActive ? "default" : "outline"}
-                    className={set.isActive ? "cursor-default" : undefined}
-                    onClick={() => {
-                      if (!set.isActive) onSelectQuestionSet(set.setNumber);
-                    }}
-                  >
-                    {set.label}
-                  </Button>
-                ))}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:max-w-sm">
+                <select
+                  id="concept-question-set"
+                  value={
+                    questionSets.find((set) => set.isActive)?.setNumber ??
+                    questionSets[0]?.setNumber ??
+                    1
+                  }
+                  onChange={(event) =>
+                    onSelectQuestionSet(Number(event.target.value))
+                  }
+                  disabled={questionSets.length === 0}
+                  className="flex h-8 min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {questionSets.map((set) => (
+                    <option key={set.setNumber} value={set.setNumber}>
+                      {set.label}
+                    </option>
+                  ))}
+                </select>
                 {allowNewQuestionSets && (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
+                    className="shrink-0"
                     onClick={onNewQuestionSet}
                     disabled={generatingNewSet}
                   >
