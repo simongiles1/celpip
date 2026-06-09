@@ -31,7 +31,10 @@ import {
   buildReadingGradingPrompt,
 } from "@/lib/prompts";
 import { getReadingQuestionsForGrading } from "@/lib/repair-reading-answer-indices";
-import { buildReadingResults } from "@/lib/reading-submission";
+import {
+  buildReadingResults,
+  getReadingAnswers,
+} from "@/lib/reading-submission";
 import { NextResponse } from "next/server";
 
 const celpipReadingPartSchema = z.enum([
@@ -542,7 +545,7 @@ async function gradeSingleConceptQuestion(
   }
 
   let prompt: string;
-  let conceptMcAnswers: Record<string, number> | undefined;
+  let conceptMcAnswers: Record<string, number | string> | undefined;
 
   if (isMcQuestion && mcItem) {
     conceptMcAnswers = parseConceptMcAnswers(
@@ -657,7 +660,7 @@ export async function POST(request: Request) {
     let conceptDrillItemsForGrade:
       | z.infer<typeof conceptDrillItemSchema>[]
       | undefined;
-    let conceptMcAnswers: Record<string, number> | undefined;
+    let conceptMcAnswers: Record<string, number | string> | undefined;
     let isMcConceptGrade = false;
 
     let readingQuestionsForGrade: z.infer<typeof readingQuestionSchema>[] | undefined;
@@ -671,8 +674,9 @@ export async function POST(request: Request) {
         input.readingQuestions,
         { examPrompt: input.examPrompt },
       );
+      const readingAnswers = getReadingAnswers(input.studentSubmission);
       const score = computeReadingScore(
-        input.studentSubmission,
+        readingAnswers,
         readingQuestionsForGrade,
       );
       autoBand = score.band;
@@ -818,7 +822,7 @@ export async function POST(request: Request) {
         targetClbBand: item.targetClbBand,
       }));
       result.readingResults = buildReadingResults(
-        input.studentSubmission,
+        getReadingAnswers(input.studentSubmission),
         readingQuestionsForGrade,
         aiFeedback,
       );

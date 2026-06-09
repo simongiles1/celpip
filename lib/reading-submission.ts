@@ -27,13 +27,25 @@ export function isReadingSubmissionEnvelope(
 }
 
 export function getReadingAnswers(
-  submission: string | Record<string, number> | ReadingSubmissionEnvelope,
+  submission:
+    | string
+    | Record<string, number | string>
+    | ReadingSubmissionEnvelope,
 ): Record<string, number> {
   if (isReadingSubmissionEnvelope(submission)) {
     return submission.answers;
   }
   if (typeof submission === "object" && submission !== null) {
-    return submission as Record<string, number>;
+    const answers: Record<string, number> = {};
+    for (const [key, value] of Object.entries(submission)) {
+      if (typeof value === "number") {
+        answers[key] = value;
+      } else if (typeof value === "string" && value.trim()) {
+        const asIndex = Number(value);
+        if (Number.isInteger(asIndex)) answers[key] = asIndex;
+      }
+    }
+    return answers;
   }
   return {};
 }
