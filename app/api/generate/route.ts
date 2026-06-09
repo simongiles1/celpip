@@ -92,6 +92,11 @@ const conceptDrillItemSchema = z.object({
   hint: z.string().optional(),
   options: z.array(z.string()).length(4).optional(),
   correctAnswerIndex: z.number().int().min(0).max(3).optional(),
+  acceptableAnswerIndexes: z
+    .array(z.number().int().min(0).max(3))
+    .min(1)
+    .max(4)
+    .optional(),
 });
 
 function prepareGeneratedPayload(
@@ -357,7 +362,7 @@ export async function POST(request: Request) {
       activeSchema.safeParse(preparePayload(parsed)).success;
 
     const mcRetryHint = exercisesOnly || isConcept
-      ? " Use correctAnswerIndex as 0-3 (not 1-4). Each conceptDrillItem must have exactly 4 options when multiple-choice is required."
+      ? " Use correctAnswerIndex as 0-3 (not 1-4). Each conceptDrillItem must have exactly 4 options when multiple-choice is required. Every MC item must include acceptableAnswerIndexes listing every option index that correctly completes the sentence (must include correctAnswerIndex)."
       : "";
 
     const { text, usage } = await callGeminiWithJsonRetry(

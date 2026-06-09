@@ -83,6 +83,10 @@ interface StudyStore {
   updateEvent: (event: StudyEvent) => void;
   updateEvents: (events: StudyEvent[]) => void;
   addGenerated: (content: GeneratedContent) => void;
+  updateConceptDrillItems: (
+    eventId: string,
+    conceptDrillItems: NonNullable<GeneratedContent["conceptDrillItems"]>,
+  ) => void;
   updateReadingAnswers: (
     eventId: string,
     answers: Record<string, number>,
@@ -401,6 +405,22 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
     const generated = [
       ...get().generated.filter((g) => g.eventId !== content.eventId),
       content,
+    ];
+    persistGenerated(generated);
+    set({ generated });
+  },
+
+  updateConceptDrillItems: (eventId, conceptDrillItems) => {
+    const existing = get().generated.find((g) => g.eventId === eventId);
+    if (!existing) return;
+
+    const updated: GeneratedContent = {
+      ...existing,
+      conceptDrillItems,
+    };
+    const generated = [
+      ...get().generated.filter((g) => g.eventId !== eventId),
+      updated,
     ];
     persistGenerated(generated);
     set({ generated });

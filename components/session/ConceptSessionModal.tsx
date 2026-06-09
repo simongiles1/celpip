@@ -21,8 +21,18 @@ import {
 } from "@/lib/concept-submission";
 import { getSessionDurationSeconds } from "@/lib/concept-analytics";
 import {
+  applyAcceptableIndexesToDrillItems,
+  buildConceptDrillAnnotateRequestBody,
   buildConceptGradeRequestBody,
+  buildConceptQuestionGradeRequestBody,
+  fetchConceptQuestionCheck,
+  buildInitialAcceptableIndexesByQuestion,
+  enrichConceptDrillItemsWithAcceptableIndexes,
   formatConceptDrillSubmission,
+  getAcceptableAnswerIndexes,
+  mergeAcceptableAnswerIndexes,
+  mergeAnnotatedAcceptableIndexes,
+  needsConceptDrillAcceptabilityAnnotation,
   restoreMcDrillResponse,
 } from "@/lib/concept-drill-mc";
 import {
@@ -37,7 +47,15 @@ import {
 import { combineGeminiUsage } from "@/lib/gemini-session-usage";
 import type { GeminiCostBreakdown } from "@/lib/gemini-usage";
 import { getConceptById } from "@/lib/skill-profile";
-import type { GeneratedContent, GenerateResponse, GradeResponse } from "@/lib/types";
+import type {
+  ConceptDrillAnnotateResponse,
+  ConceptDrillItem,
+  ConceptDrillResult,
+  ConceptQuestionGradeResponse,
+  GeneratedContent,
+  GenerateResponse,
+  GradeResponse,
+} from "@/lib/types";
 
 const GENERATE_FETCH_TIMEOUT_MS = 95_000;
 
@@ -78,6 +96,7 @@ export function ConceptSessionModal({
   const generated = useStudyStore((s) => s.generated);
   const graded = useStudyStore((s) => s.graded);
   const addGenerated = useStudyStore((s) => s.addGenerated);
+  const updateConceptDrillItems = useStudyStore((s) => s.updateConceptDrillItems);
   const addGraded = useStudyStore((s) => s.addGraded);
   const getGeneratedForEvent = useStudyStore((s) => s.getGeneratedForEvent);
   const getGradedForEvent = useStudyStore((s) => s.getGradedForEvent);
@@ -97,6 +116,16 @@ export function ConceptSessionModal({
   const [error, setError] = useState<string | null>(null);
   const [drillResponses, setDrillResponses] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingQuestionIndex, setCheckingQuestionIndex] = useState<number | null>(
+    null,
+  );
+  const [gradingQuestionIndex, setGradingQuestionIndex] = useState<number | null>(
+    null,
+  );
+  const [acceptableIndexesByQuestion, setAcceptableIndexesByQuestion] = useState<
+    Record<number, number[]>
+  >({});
+  const [acceptabilityResolving, setAcceptabilityResolving] = useState(false);
   const [gradeResult, setGradeResult] = useState<GradeResponse | null>(null);
   const [generateUsage, setGenerateUsage] = useState<GeminiCostBreakdown | undefined>();
   const [gradeUsage, setGradeUsage] = useState<GeminiCostBreakdown | undefined>();
@@ -108,6 +137,14 @@ export function ConceptSessionModal({
   const abortRef = useRef<AbortController | null>(null);
 
   const drillItems = content?.conceptDrillItems ?? [];
+  const enrichedDrillItems = useMemo(
+    () =>
+      enrichConceptDrillItemsWithAcceptableIndexes(
+        drillItems,
+        acceptableIndexesByQuestion,
+      ),
+    [drillItems, acceptableIndexesByQuestion],
+  );
 
   const instructionsChat = useConceptChat({
     concept,
@@ -157,6 +194,16 @@ export function ConceptSessionModal({
         : null;
 
       setContent(cachedContent);
+      setAcceptableIndexesByQuestion(
+        cachedContent?.conceptDrillItems?.length
+          ? buildInitialAcceptableIndexesByQuestion(cachedContent.conceptDrillItems)
+          : {},
+      );
+      setAcceptabilityResolving(
+        cachedContent?.conceptDrillItems?.length
+          ? needsConceptDrillAcceptabilityAnnotation(cachedContent.conceptDrillItems)
+          : false,
+      );
       const savedDrillAnswers = savedAnswers?.drillAnswers ?? [];
       setDrillResponses(
         cachedContent?.conceptDrillItems?.length
@@ -265,6 +312,12 @@ export function ConceptSessionModal({
         if (options?.switchToSet !== false) {
           setActiveSetNumber(setNumber);
           setContent(data);
+          setAcceptableIndexesByQuestion(
+            buildInitialAcceptableIndexesByQuestion(data.conceptDrillItems),
+          );
+          setAcceptabilityResolving(
+            needsConceptDrillAcceptabilityAnnotation(data.conceptDrillItems),
+          );
           setDrillResponses(Array(data.conceptDrillItems.length).fill(""));
           setQuestionTimings({});
           setInitialSessionDurationSeconds(null);
@@ -302,6 +355,8 @@ export function ConceptSessionModal({
       setGeneratingNewSet(false);
       setError(null);
       setDrillResponses([]);
+      setAcceptableIndexesByQuestion({});
+      setAcceptabilityResolving(false);
       setQuestionTimings({});
       setInitialSessionDurationSeconds(null);
       setGradeResult(null);
@@ -361,6 +416,185 @@ export function ConceptSessionModal({
     void generateSet(activeSetNumber);
   };
 
+  const annotateAcceptability = useCallback(
+    async (items: ConceptDrillItem[]) => {
+      if (!concept) return;
+
+      const initial = buildInitialAcceptableIndexesByQuestion(items);
+      if (
+        gradeResult?.drillResults?.length ||
+        !needsConceptDrillAcceptabilityAnnotation(items)
+      ) {
+        setAcceptableIndexesByQuestion(initial);
+        setAcceptabilityResolving(false);
+        return;
+      }
+
+      setAcceptabilityResolving(true);
+      try {
+        const res = await fetch("/api/grade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            buildConceptDrillAnnotateRequestBody({
+              conceptLabel: concept.label,
+              drillItems: items,
+              model: geminiModel,
+            }),
+          ),
+        });
+
+        if (!res.ok) {
+          setAcceptableIndexesByQuestion(initial);
+          return;
+        }
+
+        const data = (await res.json()) as ConceptDrillAnnotateResponse;
+        const indexesMap = mergeAnnotatedAcceptableIndexes(items, data.items);
+        const updatedItems = applyAcceptableIndexesToDrillItems(items, indexesMap);
+        updateConceptDrillItems(activeEventId, updatedItems);
+        setContent((prev) =>
+          prev ? { ...prev, conceptDrillItems: updatedItems } : prev,
+        );
+        setAcceptableIndexesByQuestion(indexesMap);
+        if (data.geminiUsage) {
+          setGradeUsage(
+            (prev) => combineGeminiUsage(geminiModel, prev, data.geminiUsage) ?? data.geminiUsage,
+          );
+        }
+      } catch {
+        setAcceptableIndexesByQuestion(initial);
+      } finally {
+        setAcceptabilityResolving(false);
+      }
+    },
+    [
+      activeEventId,
+      concept,
+      geminiModel,
+      gradeResult?.drillResults?.length,
+      updateConceptDrillItems,
+    ],
+  );
+
+  useEffect(() => {
+    if (!content?.conceptDrillItems?.length || loading || generatingNewSet) {
+      setAcceptabilityResolving(false);
+      return;
+    }
+    void annotateAcceptability(content.conceptDrillItems);
+  }, [
+    annotateAcceptability,
+    content?.conceptDrillItems,
+    generatingNewSet,
+    loading,
+  ]);
+
+  const applyQuestionGradeUsage = (usage?: GradeResponse["geminiUsage"]) => {
+    if (!usage) return;
+    setGradeUsage(
+      (prev) => combineGeminiUsage(geminiModel, prev, usage) ?? usage,
+    );
+  };
+
+  const handleCheckQuestion = async (
+    questionIndex: number,
+    handlers?: { onHint?: (hint: string) => void },
+  ): Promise<{ isCorrect: boolean; hint?: string }> => {
+    if (!content || !concept) {
+      throw new Error("Concept drill is not ready");
+    }
+
+    setCheckingQuestionIndex(questionIndex);
+    setError(null);
+
+    try {
+      const drillItems = enrichedDrillItems;
+      const result = await fetchConceptQuestionCheck(
+        buildConceptQuestionGradeRequestBody({
+          conceptLabel: concept.label,
+          drillItems,
+          drillResponses,
+          questionIndex,
+          model: geminiModel,
+          gradingFeedbackConstraints: exercisesChat.gradingFeedbackConstraints,
+          phase: "check",
+        }),
+        handlers,
+      );
+      if (result.acceptableAnswerIndexes?.length) {
+        setAcceptableIndexesByQuestion((prev) => ({
+          ...prev,
+          [questionIndex]: mergeAcceptableAnswerIndexes(
+            prev[questionIndex] ??
+              getAcceptableAnswerIndexes(enrichedDrillItems[questionIndex]),
+            result.acceptableAnswerIndexes,
+          ),
+        }));
+      }
+      applyQuestionGradeUsage(result.geminiUsage);
+      return result;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Check failed");
+      throw err;
+    } finally {
+      setCheckingQuestionIndex(null);
+    }
+  };
+
+  const handleGradeQuestion = async (
+    questionIndex: number,
+  ): Promise<ConceptDrillResult> => {
+    if (!content || !concept) {
+      throw new Error("Concept drill is not ready");
+    }
+
+    setGradingQuestionIndex(questionIndex);
+    setError(null);
+
+    try {
+      const drillItems = enrichedDrillItems;
+      const res = await fetch("/api/grade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          buildConceptQuestionGradeRequestBody({
+            conceptLabel: concept.label,
+            drillItems,
+            drillResponses,
+            questionIndex,
+            model: geminiModel,
+            gradingFeedbackConstraints: exercisesChat.gradingFeedbackConstraints,
+            phase: "full",
+          }),
+        ),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error ?? "Grading failed");
+      }
+
+      const result = (await res.json()) as ConceptQuestionGradeResponse;
+      applyQuestionGradeUsage(result.geminiUsage);
+
+      const timeSpentSeconds = questionTimings[String(questionIndex)];
+      if (timeSpentSeconds == null || !Number.isFinite(timeSpentSeconds)) {
+        return result.drillResult;
+      }
+
+      return {
+        ...result.drillResult,
+        timeSpentSeconds: Math.max(0, Math.round(timeSpentSeconds)),
+      };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Grading failed");
+      throw err;
+    } finally {
+      setGradingQuestionIndex(null);
+    }
+  };
+
   const handleSubmit = async (
     submittedTimings: Record<string, number>,
     sessionDurationSeconds: number,
@@ -371,7 +605,7 @@ export function ConceptSessionModal({
     setQuestionTimings(submittedTimings);
     setInitialSessionDurationSeconds(sessionDurationSeconds);
 
-    const drillItems = content.conceptDrillItems ?? [];
+    const drillItems = enrichedDrillItems;
     const { baseSubmission } = formatConceptDrillSubmission(
       drillItems,
       drillResponses,
@@ -538,6 +772,18 @@ export function ConceptSessionModal({
                   });
                 }}
                 onSubmit={handleSubmit}
+                onCheckQuestion={handleCheckQuestion}
+                onGradeQuestion={handleGradeQuestion}
+                acceptableIndexesByQuestion={acceptableIndexesByQuestion}
+                acceptabilityResolving={acceptabilityResolving}
+                onAcceptableIndexesChange={(index, indexes) => {
+                  setAcceptableIndexesByQuestion((prev) => ({
+                    ...prev,
+                    [index]: indexes,
+                  }));
+                }}
+                checkingQuestionIndex={checkingQuestionIndex}
+                gradingQuestionIndex={gradingQuestionIndex}
                 submitting={submitting}
                 gradeResult={gradeResult}
                 initialQuestionTimings={questionTimings}

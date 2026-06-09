@@ -193,6 +193,11 @@ export interface ConceptDrillItem {
   /** When set with correctAnswerIndex, the exercise is multiple-choice (4 options). */
   options?: string[];
   correctAnswerIndex?: number;
+  /**
+   * All option indexes (0-3) that correctly complete the sentence.
+   * When length > 1, the UI uses multi-select checkboxes.
+   */
+  acceptableAnswerIndexes?: number[];
 }
 
 export interface ConceptDrillResult {
@@ -203,6 +208,40 @@ export interface ConceptDrillResult {
   feedback: string;
   /** Seconds spent on this exercise before moving on or submitting. */
   timeSpentSeconds?: number;
+}
+
+export type ConceptQuestionCheckPhase =
+  | "idle"
+  | "checking"
+  | "correct"
+  | "hint"
+  | "graded";
+
+export interface ConceptQuestionCheckState {
+  phase: ConceptQuestionCheckPhase;
+  hint?: string;
+  result?: ConceptDrillResult;
+}
+
+export interface ConceptQuestionCheckResponse {
+  isCorrect: boolean;
+  hint?: string;
+  /** Set when 2+ options genuinely work — upgrades the exercise to multi-select. */
+  acceptableAnswerIndexes?: number[];
+  geminiUsage?: GeminiCostBreakdown;
+}
+
+export interface ConceptQuestionGradeResponse {
+  drillResult: ConceptDrillResult;
+  geminiUsage?: GeminiCostBreakdown;
+}
+
+export interface ConceptDrillAnnotateResponse {
+  items: Array<{
+    index: number;
+    acceptableAnswerIndexes: number[];
+  }>;
+  geminiUsage?: GeminiCostBreakdown;
 }
 
 export interface ConceptGradeMetadata {

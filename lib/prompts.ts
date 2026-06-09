@@ -173,7 +173,18 @@ MULTIPLE-CHOICE FORMAT (follow strictly):
 - Do NOT use free-text fill-in-the-blank. Options must appear only in the "options" array, not duplicated in the prompt.
 - Distractors must be plausible but clearly wrong to a learner who knows the rule.
 - Options are ONLY what goes in the ___ blank. If the prompt already has words after ___ (e.g. "___ however, no decision…"), do NOT repeat those words inside any option.
-- All four options must produce clearly different sentences when inserted at ___. Never offer two options that mean the same thing in context (e.g. "," vs ", however," when "however" already follows the blank).`;
+- All four options must produce clearly different sentences when inserted at ___. Never offer two options that mean the same thing in context (e.g. "," vs ", however," when "however" already follows the blank).
+- REQUIRED on every item: "acceptableAnswerIndexes" — list every option index (0-3) that is natural and grammatical when inserted (must include correctAnswerIndex). Read the sentence with each option before finalizing.
+- When only one option works, acceptableAnswerIndexes is a one-element array (single-select in the app).
+- When two or more options genuinely work, include every working index and start the prompt with "Select all that could correctly complete the sentence:". Use multi-answer sparingly — only when multiple answers are truly defensible.`;
+
+export const CONCEPT_DRILL_HINT_GUIDANCE = `
+HINT QUALITY (required when the student's answer is wrong):
+- Anchor the hint to a concrete phrase or idea IN the exercise sentence (e.g. "the main entrance", "the second weekend of September") — not vague questions like "which option fits best?"
+- Name what kind of thing the sentence is describing in plain language (a specific spot or point, a calendar date, a month as a container, a movement toward a place, etc.) and how that relates to the concept being practiced.
+- Include ONE short negative example in the form "You wouldn't say '…'" — combine the wrong direction the student took with an unnatural collocation so the pattern clicks (e.g. "You wouldn't say 'meet on a place'" or "You wouldn't say 'in September 13th'").
+- Teach a reusable correlation the learner can apply elsewhere, without naming or quoting the correct answer option.
+- 2-3 sentences total. Plain, friendly language. No grammar jargon.`;
 
 export const DEFAULT_GRADING_FEEDBACK_CONSTRAINTS = `
 - Use plain, friendly language. Avoid grammar jargon (comma splice, independent clause, conjunctive adverb, adverbial clause, essential clause).
@@ -759,6 +770,155 @@ Every weakness in constructiveCriticism must have a matching weakness skillTag. 
 Return ONLY valid JSON, no markdown fences.`;
 }
 
+export function buildConceptMcAnnotatePrompt(
+  conceptLabel: string,
+  drillItemsJson: string,
+): string {
+  return `You are an expert English instructor reviewing a multiple-choice concept drill set.
+
+Concept: ${conceptLabel}
+Drill exercises (with options and correctAnswerIndex): ${drillItemsJson}
+
+For EACH exercise, read the sentence with every option (index 0-3) inserted at the blank.
+
+Return ONLY valid JSON:
+{
+  "items": [
+    {
+      "index": 0,
+      "acceptableAnswerIndexes": [1]
+    }
+  ]
+}
+
+Rules:
+- Include exactly one entry per exercise (indexes 0 through N-1).
+- "acceptableAnswerIndexes" must list every option index that is natural and grammatical in that sentence (sorted ascending).
+- List only indexes that truly work — do not pad to multiple answers.
+- When only one option works, return an array of length 1.
+- correctAnswerIndex is the preferred answer but include any other genuinely acceptable indexes too.`;
+}
+
+export function buildConceptMcQuestionHintPrompt(
+  conceptLabel: string,
+  exercisePrompt: string,
+  options: string[],
+  studentAnswer: string,
+  gradingFeedbackConstraints?: string,
+): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
+  return `You are an expert English instructor helping a student with a multiple-choice concept drill.
+
+Concept: ${conceptLabel}
+Exercise: ${exercisePrompt}
+Answer options: ${JSON.stringify(options)}
+Student selected: ${studentAnswer}
+
+The student's answer is wrong. Write a helpful hint. Do NOT reveal or quote the correct answer option.
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
+
+${CONCEPT_DRILL_HINT_GUIDANCE}
+
+Output only the hint text — no JSON, no labels, no preamble.`;
+}
+
+export function buildConceptQuestionCheckStreamPrompt(
+  conceptLabel: string,
+  prompt: string,
+  studentAnswer: string,
+  gradingFeedbackConstraints?: string,
+): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
+  return `You are an expert English instructor checking one concept drill exercise.
+
+Concept: ${conceptLabel}
+Exercise: ${prompt}
+Student answer: ${studentAnswer}
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
+
+Decide if the student's answer is correct. Accept reasonable synonyms and paraphrases for fill-in-the-blank answers.
+
+If the answer is correct, respond with exactly the single word CORRECT and nothing else.
+If the answer is wrong, output only the hint. Do NOT use JSON.
+
+${CONCEPT_DRILL_HINT_GUIDANCE}`;
+}
+
+export function buildConceptMcQuestionCheckPrompt(
+  conceptLabel: string,
+  exercisePrompt: string,
+  options: string[],
+  studentAnswer: string,
+  keyedCorrectAnswer: string,
+  gradingFeedbackConstraints?: string,
+): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
+  return `You are an expert English instructor checking one multiple-choice concept drill exercise.
+
+Concept: ${conceptLabel}
+Exercise: ${exercisePrompt}
+Answer options: ${JSON.stringify(options)}
+Preferred answer (for grading reference only — do NOT quote this in the hint): ${keyedCorrectAnswer}
+Student selected: ${studentAnswer}
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
+
+ACCEPTABILITY (follow strictly):
+- Read the sentence with each option inserted. List every option index (0-3) that is natural and grammatical.
+- Set isCorrect to true if EVERY option the student selected is in that acceptable list (for a single selection, the one choice must be acceptable).
+- Set isCorrect to false if any selected option is unacceptable, or if the student selected nothing applicable.
+- Always include "acceptableAnswerIndexes" with every working option index (sorted). Use a one-element array when only one option works.
+
+${CONCEPT_DRILL_HINT_GUIDANCE}
+
+Return ONLY valid JSON:
+{
+  "isCorrect": true,
+  "acceptableAnswerIndexes": [0, 3],
+  "hint": "only when isCorrect is false — follow HINT QUALITY above"
+}`;
+}
+
+export function buildConceptQuestionCheckPrompt(
+  conceptLabel: string,
+  prompt: string,
+  studentAnswer: string,
+  gradingFeedbackConstraints?: string,
+): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
+  return `You are an expert English instructor checking one concept drill exercise.
+
+Concept: ${conceptLabel}
+Exercise: ${prompt}
+Student answer: ${studentAnswer}
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
+
+Decide if the student's answer is correct. Accept reasonable synonyms and paraphrases for fill-in-the-blank answers.
+
+${CONCEPT_DRILL_HINT_GUIDANCE}
+
+Return ONLY valid JSON:
+{
+  "isCorrect": true,
+  "hint": "only when isCorrect is false — follow HINT QUALITY above"
+}`;
+}
+
 export function buildConceptMcGradingPrompt(
   conceptLabel: string,
   drillItemsJson: string,
@@ -789,6 +949,7 @@ The score is already computed. Provide JSON:
   "drillResults": [
     {
       "index": 0,
+      "isAcceptable": true,
       "feedback": "One or two short sentences in plain language explaining why the correct option is right, or why the student's choice was wrong."
     }
   ],
@@ -796,7 +957,8 @@ The score is already computed. Provide JSON:
 }
 
 Include exactly one drillResults entry per exercise (indexes 0 through N-1). Focus feedback on the options — refer to option text, not Yes/No.
-For correct answers, give brief reinforcement. For incorrect answers, explain why the correct option fits in simple terms.
+For each entry, set "isAcceptable" to true if the student's selected option works naturally in the sentence (even when it differs from correctAnswerIndex). Set false only when clearly wrong or unnatural.
+For acceptable answers, give brief reinforcement. For unacceptable answers, explain why the preferred option fits in simple terms.
 Do NOT set isCorrect, studentAnswer, or correctAnswer — those are computed separately.
 Return ONLY valid JSON, no markdown fences.`;
 }

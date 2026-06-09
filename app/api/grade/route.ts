@@ -1,9 +1,19 @@
 import { z } from "zod";
 import { callGeminiWithJsonRetry } from "@/lib/gemini-api";
+import { callGeminiStream } from "@/lib/gemini-server";
+import {
+  calculateGeminiCost,
+  logGeminiUsage,
+} from "@/lib/gemini-usage";
 import {
   buildConceptDrillResults,
   computeConceptDrillScore,
+  getAcceptableAnswerIndexes,
+  getMcDrillResponseFromCheckInput,
+  isConceptQuestionCorrect,
   isMultipleChoiceDrillSet,
+  mapMcAiDrillFeedback,
+  parseConceptCheckStreamText,
   parseConceptMcAnswers,
 } from "@/lib/concept-drill-mc";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS } from "@/lib/gemini";
@@ -11,7 +21,12 @@ import { normalizeGradingPayload } from "@/lib/normalize-grading-response";
 import { buildFocusedGradingPrompt } from "@/lib/focus-prompts";
 import {
   buildConceptGradingPrompt,
+  buildConceptMcAnnotatePrompt,
   buildConceptMcGradingPrompt,
+  buildConceptMcQuestionCheckPrompt,
+  buildConceptMcQuestionHintPrompt,
+  buildConceptQuestionCheckPrompt,
+  buildConceptQuestionCheckStreamPrompt,
   buildGradingPrompt,
   buildReadingGradingPrompt,
 } from "@/lib/prompts";
@@ -74,17 +89,30 @@ const conceptDrillItemSchema = z.object({
   hint: z.string().optional(),
   options: z.array(z.string()).length(4),
   correctAnswerIndex: z.number().int().min(0).max(3),
+  acceptableAnswerIndexes: z
+    .array(z.number().int().min(0).max(3))
+    .min(1)
+    .max(4)
+    .optional(),
 });
 
 const requestSchema = z.object({
   focusSubTest: z.string(),
   examPrompt: z.string(),
-  studentSubmission: z.union([z.string(), z.record(z.string(), z.number())]),
+  studentSubmission: z.union([
+    z.string(),
+    z.record(z.string(), z.union([z.number(), z.string()])),
+  ]),
   readingQuestions: z.array(readingQuestionSchema).optional(),
   conceptLabel: z.string().optional(),
   conceptDrillItems: z.array(conceptDrillItemSchema).optional(),
   drillResponses: z.string().optional(),
   gradingFeedbackConstraints: z.string().optional(),
+  conceptQuestionIndex: z.number().int().min(0).optional(),
+  conceptGradingPhase: z.enum(["check", "full", "annotate"]).optional(),
+  conceptQuestionStudentAnswer: z.string().optional(),
+  conceptQuestionKnownIncorrect: z.boolean().optional(),
+  stream: z.boolean().optional(),
   gradingMode: z.enum(["standard", "focused"]).optional(),
   focusConceptIds: z.array(z.string()).optional(),
   isInitialFocusAssessment: z.boolean().optional(),
@@ -177,6 +205,7 @@ const conceptMcGradingResponseSchema = z.object({
       z.object({
         index: z.number(),
         feedback: z.string(),
+        isAcceptable: z.boolean().optional(),
       }),
     )
     .optional(),
@@ -189,6 +218,28 @@ function validateGradingPayload(parsed: unknown) {
 function validateConceptMcGradingPayload(parsed: unknown) {
   return conceptMcGradingResponseSchema.safeParse(prepareGradingPayload(parsed));
 }
+
+const conceptQuestionCheckResponseSchema = z.object({
+  isCorrect: z.boolean(),
+  hint: z.string().optional(),
+  acceptableAnswerIndexes: z
+    .array(z.number().int().min(0).max(3))
+    .min(1)
+    .max(4)
+    .optional(),
+});
+
+const conceptDrillAnnotateResponseSchema = z.object({
+  items: z.array(
+    z.object({
+      index: z.number().int().min(0),
+      acceptableAnswerIndexes: z
+        .array(z.number().int().min(0).max(3))
+        .min(1)
+        .max(4),
+    }),
+  ),
+});
 
 function computeReadingScore(
   answers: Record<string, number>,
@@ -209,10 +260,397 @@ function computeReadingScore(
   };
 }
 
+async function annotateConceptDrillItems(
+  input: z.infer<typeof requestSchema>,
+): Promise<NextResponse> {
+  const items = input.conceptDrillItems ?? [];
+  const prompt = buildConceptMcAnnotatePrompt(
+    input.conceptLabel!,
+    JSON.stringify(items),
+  );
+
+  const { text, usage } = await callGeminiWithJsonRetry(
+    prompt,
+    input.model,
+    "Return strictly valid JSON matching the schema. No prose, no markdown.",
+    "grade-concept-annotate",
+    parseJsonResponse,
+    (parsed) => conceptDrillAnnotateResponseSchema.safeParse(parsed).success,
+    {
+      describeValidationFailure: (parsed) => {
+        const result = conceptDrillAnnotateResponseSchema.safeParse(parsed);
+        return result.success ? undefined : formatZodIssues(result.error);
+      },
+    },
+  );
+
+  const validated = conceptDrillAnnotateResponseSchema.safeParse(
+    parseJsonResponse(text),
+  );
+  if (!validated.success) {
+    return NextResponse.json(
+      { error: "Invalid annotate response from AI model" },
+      { status: 502 },
+    );
+  }
+
+  return NextResponse.json({
+    items: validated.data.items,
+    geminiUsage: usage,
+  });
+}
+
+function ndjsonStreamResponse(
+  run: (
+    sendLine: (payload: Record<string, unknown>) => void,
+  ) => Promise<void>,
+): Response {
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const sendLine = (payload: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+      };
+
+      try {
+        await run(sendLine);
+        controller.close();
+      } catch (error) {
+        sendLine({
+          type: "error",
+          error: error instanceof Error ? error.message : "Check failed",
+        });
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
+}
+
+function resolveLocalConceptQuestionCheck(
+  input: z.infer<typeof requestSchema>,
+  mcItem: z.infer<typeof conceptDrillItemSchema> | undefined,
+  isMcQuestion: boolean,
+): { isCorrect: boolean; acceptableAnswerIndexes: number[] } | null {
+  if (!isMcQuestion || !mcItem) return null;
+
+  const response = getMcDrillResponseFromCheckInput(input.studentSubmission);
+  const isCorrect = isConceptQuestionCorrect(mcItem, response);
+  if (isCorrect == null) return null;
+
+  return {
+    isCorrect,
+    acceptableAnswerIndexes: getAcceptableAnswerIndexes(mcItem),
+  };
+}
+
+async function streamPlainTextHintResponse(
+  hintPrompt: string,
+  model: z.infer<typeof requestSchema>["model"],
+  sendLine: (payload: Record<string, unknown>) => void,
+  doneResult: z.infer<typeof conceptQuestionCheckResponseSchema>,
+): Promise<void> {
+  let lastHint = "";
+
+  const { usage } = await callGeminiStream(
+    hintPrompt,
+    model,
+    (_chunk, accumulated) => {
+      const trimmed = accumulated.trim();
+      if (/^CORRECT/i.test(trimmed)) return;
+
+      if (trimmed !== lastHint) {
+        lastHint = trimmed;
+        sendLine({ type: "hint", hint: trimmed });
+      }
+    },
+    { json: false },
+  );
+
+  const geminiUsage = calculateGeminiCost(model, usage);
+  logGeminiUsage("grade-concept-question-check", geminiUsage);
+  sendLine({
+    type: "done",
+    result: {
+      ...doneResult,
+      hint: doneResult.hint ?? (lastHint || undefined),
+    },
+    geminiUsage,
+  });
+}
+
+function streamConceptQuestionCheckResponse(
+  input: z.infer<typeof requestSchema>,
+  mcItem: z.infer<typeof conceptDrillItemSchema> | undefined,
+  isMcQuestion: boolean,
+  studentAnswer: string,
+  promptText: string,
+): Response {
+  const localCheck = resolveLocalConceptQuestionCheck(
+    input,
+    mcItem,
+    isMcQuestion,
+  );
+
+  if (localCheck?.isCorrect) {
+    return ndjsonStreamResponse(async (sendLine) => {
+      sendLine({
+        type: "done",
+        result: {
+          isCorrect: true,
+          acceptableAnswerIndexes: localCheck.acceptableAnswerIndexes,
+        },
+      });
+    });
+  }
+
+  const hintPrompt =
+    isMcQuestion && mcItem
+      ? buildConceptMcQuestionHintPrompt(
+          input.conceptLabel!,
+          mcItem.prompt,
+          mcItem.options,
+          studentAnswer,
+          input.gradingFeedbackConstraints,
+        )
+      : buildConceptQuestionCheckStreamPrompt(
+          input.conceptLabel!,
+          promptText,
+          studentAnswer,
+          input.gradingFeedbackConstraints,
+        );
+
+  return ndjsonStreamResponse(async (sendLine) => {
+    if (localCheck && !localCheck.isCorrect) {
+      await streamPlainTextHintResponse(hintPrompt, input.model, sendLine, {
+        isCorrect: false,
+        acceptableAnswerIndexes: localCheck.acceptableAnswerIndexes,
+      });
+      return;
+    }
+
+    let lastHint = "";
+
+    const { text, usage } = await callGeminiStream(
+      hintPrompt,
+      input.model,
+      (_chunk, accumulated) => {
+        const trimmed = accumulated.trim();
+        if (/^CORRECT/i.test(trimmed)) return;
+
+        if (trimmed !== lastHint) {
+          lastHint = trimmed;
+          sendLine({ type: "hint", hint: trimmed });
+        }
+      },
+      { json: false },
+    );
+
+    const parsed = parseConceptCheckStreamText(text);
+    const geminiUsage = calculateGeminiCost(input.model, usage);
+    logGeminiUsage("grade-concept-question-check", geminiUsage);
+    sendLine({
+      type: "done",
+      result: {
+        isCorrect: parsed.isCorrect,
+        hint: parsed.hint ?? (lastHint || undefined),
+        acceptableAnswerIndexes: mcItem
+          ? getAcceptableAnswerIndexes(mcItem)
+          : undefined,
+      },
+      geminiUsage,
+    });
+  });
+}
+
+async function gradeSingleConceptQuestion(
+  input: z.infer<typeof requestSchema>,
+): Promise<NextResponse | Response> {
+  const questionIndex = input.conceptQuestionIndex!;
+  const phase = input.conceptGradingPhase!;
+  const studentAnswer = input.conceptQuestionStudentAnswer?.trim() ?? "";
+
+  const mcItem =
+    input.conceptDrillItems?.length === 1
+      ? input.conceptDrillItems[0]
+      : undefined;
+  const isMcQuestion = mcItem != null && isMultipleChoiceDrillSet([mcItem]);
+  const promptText = mcItem?.prompt ?? input.drillResponses?.split("\n")[0]?.replace(/^Q: /, "") ?? "";
+
+  if (phase === "check") {
+    const checkPrompt =
+      isMcQuestion && mcItem
+        ? buildConceptMcQuestionCheckPrompt(
+            input.conceptLabel!,
+            mcItem.prompt,
+            mcItem.options,
+            studentAnswer,
+            mcItem.options[mcItem.correctAnswerIndex],
+            input.gradingFeedbackConstraints,
+          )
+        : buildConceptQuestionCheckPrompt(
+            input.conceptLabel!,
+            promptText,
+            studentAnswer,
+            input.gradingFeedbackConstraints,
+          );
+
+    if (input.stream) {
+      return streamConceptQuestionCheckResponse(
+        input,
+        mcItem,
+        isMcQuestion,
+        studentAnswer,
+        promptText,
+      );
+    }
+
+    const { text, usage } = await callGeminiWithJsonRetry(
+      checkPrompt,
+      input.model,
+      "Return strictly valid JSON matching the schema. No prose, no markdown.",
+      "grade-concept-question-check",
+      parseJsonResponse,
+      (parsed) => conceptQuestionCheckResponseSchema.safeParse(parsed).success,
+      {
+        describeValidationFailure: (parsed) => {
+          const result = conceptQuestionCheckResponseSchema.safeParse(parsed);
+          return result.success ? undefined : formatZodIssues(result.error);
+        },
+      },
+    );
+    const validated = conceptQuestionCheckResponseSchema.safeParse(
+      parseJsonResponse(text),
+    );
+    if (!validated.success) {
+      return NextResponse.json(
+        { error: "Invalid check response from AI model" },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({
+      ...validated.data,
+      geminiUsage: usage,
+    });
+  }
+
+  let prompt: string;
+  let conceptMcAnswers: Record<string, number> | undefined;
+
+  if (isMcQuestion && mcItem) {
+    conceptMcAnswers = parseConceptMcAnswers(
+      input.studentSubmission,
+      input.drillResponses,
+    );
+    const score = computeConceptDrillScore(conceptMcAnswers, [mcItem]);
+    prompt = buildConceptMcGradingPrompt(
+      input.conceptLabel!,
+      JSON.stringify([mcItem]),
+      JSON.stringify(conceptMcAnswers),
+      score.summary,
+      input.gradingFeedbackConstraints,
+    );
+  } else {
+    const submission =
+      typeof input.studentSubmission === "string"
+        ? input.studentSubmission
+        : JSON.stringify(input.studentSubmission);
+    prompt = buildConceptGradingPrompt(
+      input.conceptLabel!,
+      input.drillResponses ?? "",
+      submission,
+      input.gradingFeedbackConstraints,
+    );
+  }
+
+  const { text, usage } = await callGeminiWithJsonRetry(
+    prompt,
+    input.model,
+    "Return strictly valid JSON matching the schema. No prose, no markdown.",
+    "grade-concept-question-full",
+    parseJsonResponse,
+    (parsed) =>
+      isMcQuestion
+        ? validateConceptMcGradingPayload(parsed).success
+        : validateGradingPayload(parsed).success,
+    {
+      describeValidationFailure: (parsed) => {
+        const result = isMcQuestion
+          ? validateConceptMcGradingPayload(parsed)
+          : validateGradingPayload(parsed);
+        return result.success ? undefined : formatZodIssues(result.error);
+      },
+    },
+  );
+
+  const parsedResponse = parseJsonResponse(text);
+  const validated = isMcQuestion
+    ? validateConceptMcGradingPayload(parsedResponse)
+    : validateGradingPayload(parsedResponse);
+
+  if (!validated.success) {
+    return NextResponse.json(
+      { error: "Invalid grading response from AI model" },
+      { status: 502 },
+    );
+  }
+
+  let drillResult;
+  if (isMcQuestion && mcItem && conceptMcAnswers) {
+    const mcResult = validated.data as z.infer<typeof conceptMcGradingResponseSchema>;
+    const [built] = buildConceptDrillResults(
+      conceptMcAnswers,
+      [mcItem],
+      mapMcAiDrillFeedback(mcResult.drillResults),
+    );
+    drillResult = { ...built, index: questionIndex };
+  } else {
+    const result = validated.data as z.infer<typeof responseSchema>;
+    const built = result.drillResults?.[0];
+    if (!built) {
+      return NextResponse.json(
+        { error: "Grading response missing drill result" },
+        { status: 502 },
+      );
+    }
+    drillResult = { ...built, index: questionIndex };
+  }
+
+  return NextResponse.json({
+    drillResult,
+    geminiUsage: usage,
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const input = requestSchema.parse(body);
+
+    if (
+      input.focusSubTest === "Concept" &&
+      input.conceptLabel &&
+      input.conceptGradingPhase === "annotate" &&
+      input.conceptDrillItems?.length
+    ) {
+      return annotateConceptDrillItems(input);
+    }
+
+    if (
+      input.focusSubTest === "Concept" &&
+      input.conceptLabel &&
+      input.conceptQuestionIndex != null &&
+      input.conceptGradingPhase
+    ) {
+      return gradeSingleConceptQuestion(input);
+    }
 
     let prompt: string;
     let autoBand: number | undefined;
@@ -353,13 +791,7 @@ export async function POST(request: Request) {
         drillResults: buildConceptDrillResults(
           conceptMcAnswers,
           conceptDrillItemsForGrade,
-          mcResult.drillResults?.map((item) => ({
-            index: item.index,
-            isCorrect: false,
-            studentAnswer: "",
-            correctAnswer: "",
-            feedback: item.feedback,
-          })),
+          mapMcAiDrillFeedback(mcResult.drillResults),
         ),
         geminiUsage: usage,
       });

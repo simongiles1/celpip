@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Per-question concept drill checks** — Each exercise now has a Check answer button: correct responses show a simple confirmation; incorrect ones receive an AI hint first, then Show answer reveals the full explanation (same style as set grading). Bulk Submit for Grading is unchanged.
+- **Concept drill hint and acceptability guidance** — Hints now anchor to the sentence, teach a reusable pattern, and include a "You wouldn't say…" negative example. Multiple-choice checks and grading accept alternate options that are natural in context (not only the keyed correctAnswerIndex). Generation rules require only one clearly best option per item.
+- **Concept drill multi-select** — When two or more MC options genuinely work, exercises switch to checkboxes with "select all that fit" copy. `acceptableAnswerIndexes` can be set at generation or discovered on check; single-answer items stay radio buttons.
+- **Concept drill acceptability on load** — Question sets annotate acceptable answers when the set opens (one batch call), so multi-select vs radio is correct before the first check. MC checks always use the API (no client-side correct shortcut) so acceptability stays in sync.
+- **Concept drill acceptability loading state** — While acceptability is being resolved, answer options stay hidden with a short "Preparing answer options…" message so the UI does not flip from radio to checkbox after the annotate call returns.
+- **Persisted concept drill acceptability** — `acceptableAnswerIndexes` is required when MC question sets are generated and stored in `concept_drill_items`. Legacy sets without that field are annotated once, saved via `updateConceptDrillItems`, and skip re-annotation on later loads.
 - **`npm run dev:restart`** — Windows script kills anything on port 3004 and starts the dev server again.
 - **Feedback ticket replies** — Each feedback ticket now has a thread where either party can post anonymous replies; messages sync on send, window focus, and every 15 seconds while the page is open.
 - **Focus Lab tab strip** — `/focus` now has four tabs: Focus Set (active concepts + drills), Focus History (completed cycles archive), Assessment Bands (calendar + focus CLB timeline), and Practice Priority (full concept ranking with rolling window).

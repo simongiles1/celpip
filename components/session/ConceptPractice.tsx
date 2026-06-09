@@ -14,13 +14,22 @@ import {
 import { ConceptPracticeHistory } from "@/components/session/ConceptPracticeHistory";
 import { formatConceptDuration } from "@/lib/concept-analytics";
 import {
+  getAcceptableAnswerIndexes,
+  isMcDrillResponseComplete,
+  isMultiSelectMcDrillItem,
   isMultipleChoiceDrillItem,
+  mergeAcceptableAnswerIndexes,
+  parseMcDrillSelectedIndexes,
+  toggleMcDrillSelection,
 } from "@/lib/concept-drill-mc";
 import { getConceptSetScore } from "@/lib/concept-question-sets";
 import type {
   ConceptChatContext,
   ConceptChatMessage,
   ConceptDrillItem,
+  ConceptDrillResult,
+  ConceptQuestionCheckResponse,
+  ConceptQuestionCheckState,
   GradeResponse,
 } from "@/lib/types";
 
@@ -55,6 +64,16 @@ interface ConceptPracticeProps {
     questionTimings: Record<string, number>,
     sessionDurationSeconds: number,
   ) => void;
+  onCheckQuestion?: (
+    index: number,
+    handlers?: { onHint?: (hint: string) => void },
+  ) => Promise<ConceptQuestionCheckResponse>;
+  onGradeQuestion?: (index: number) => Promise<ConceptDrillResult>;
+  acceptableIndexesByQuestion?: Record<number, number[]>;
+  acceptabilityResolving?: boolean;
+  onAcceptableIndexesChange?: (index: number, indexes: number[]) => void;
+  checkingQuestionIndex?: number | null;
+  gradingQuestionIndex?: number | null;
   submitting: boolean;
   gradeResult?: GradeResponse | null;
   initialQuestionTimings?: Record<string, number>;
@@ -154,10 +173,10 @@ function getOptionClassName({
 function isDrillResponseComplete(
   item: ConceptDrillItem,
   response: string | undefined,
+  acceptableIndexes?: number[],
 ): boolean {
   if (isMultipleChoiceDrillItem(item)) {
-    const selected = Number(response);
-    return Number.isInteger(selected) && selected >= 0 && selected <= 3;
+    return isMcDrillResponseComplete(item, response, acceptableIndexes);
   }
   return Boolean(response?.trim());
 }
@@ -174,6 +193,13 @@ export function ConceptPractice({
   drillResponses,
   onDrillChange,
   onSubmit,
+  onCheckQuestion,
+  onGradeQuestion,
+  acceptableIndexesByQuestion = {},
+  acceptabilityResolving = false,
+  onAcceptableIndexesChange,
+  checkingQuestionIndex = null,
+  gradingQuestionIndex = null,
   submitting,
   gradeResult,
   initialQuestionTimings = {},
@@ -183,7 +209,11 @@ export function ConceptPractice({
 }: ConceptPracticeProps) {
   const [activeTab, setActiveTab] = useState("instructions");
   const allComplete = drillItems.every((item, index) =>
-    isDrillResponseComplete(item, drillResponses[index]),
+    isDrillResponseComplete(
+      item,
+      drillResponses[index],
+      acceptableIndexesByQuestion[index],
+    ),
   );
 
   const hasPerExerciseResults = Boolean(gradeResult?.drillResults?.length);
@@ -210,12 +240,18 @@ export function ConceptPractice({
     null,
   );
   const [activeElapsed, setActiveElapsed] = useState(0);
+  const [questionChecks, setQuestionChecks] = useState<
+    Record<number, ConceptQuestionCheckState>
+  >({});
+
+  const supportsIndividualGrading = Boolean(onCheckQuestion && onGradeQuestion);
 
   useEffect(() => {
     setQuestionTimings(initialQuestionTimings);
     activeQuestionRef.current = null;
     setActiveQuestionIndex(null);
     setActiveElapsed(0);
+    setQuestionChecks({});
 
     if (isGraded) {
       sessionStartedAtRef.current = null;
@@ -334,6 +370,92 @@ export function ConceptPractice({
   const sessionTimeSeconds = isGraded
     ? (frozenSessionDuration ?? perQuestionTimeSeconds)
     : sessionElapsed;
+
+  const handleDrillChange = (index: number, value: string) => {
+    setQuestionChecks((prev) => {
+      if (!(index in prev)) return prev;
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    onDrillChange(index, value);
+  };
+
+  const handleCheckQuestion = async (index: number) => {
+    if (!onCheckQuestion) return;
+
+    const item = drillItems[index];
+    const response = drillResponses[index];
+    if (!isDrillResponseComplete(item, response)) return;
+
+    setQuestionChecks((prev) => ({
+      ...prev,
+      [index]: { phase: "checking", hint: "" },
+    }));
+
+    try {
+      const result = await onCheckQuestion(index, {
+        onHint: (hint) => {
+          setQuestionChecks((prev) => ({
+            ...prev,
+            [index]: { phase: "checking", hint },
+          }));
+        },
+      });
+      if (result.acceptableAnswerIndexes?.length) {
+        onAcceptableIndexesChange?.(
+          index,
+          mergeAcceptableAnswerIndexes(
+            getAcceptableAnswerIndexes(
+              item,
+              acceptableIndexesByQuestion[index],
+            ),
+            result.acceptableAnswerIndexes,
+          ),
+        );
+      }
+      if (result.isCorrect) {
+        setQuestionChecks((prev) => ({
+          ...prev,
+          [index]: { phase: "correct" },
+        }));
+        return;
+      }
+
+      setQuestionChecks((prev) => ({
+        ...prev,
+        [index]: {
+          phase: "hint",
+          hint:
+            result.hint?.trim() ||
+            item.hint ||
+            "Review the instructions and try a different answer.",
+        },
+      }));
+    } catch {
+      setQuestionChecks((prev) => {
+        if (prev[index]?.phase !== "checking") return prev;
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
+      // Parent surfaces API errors.
+    }
+  };
+
+  const handleGradeQuestion = async (index: number) => {
+    if (!onGradeQuestion) return;
+
+    try {
+      const result = await onGradeQuestion(index);
+      setQuestionChecks((prev) => ({
+        ...prev,
+        [index]: { phase: "graded", result },
+      }));
+    } catch {
+      // Parent surfaces API errors.
+    }
+  };
 
   const handleSubmitClick = () => {
     const finalSessionDuration = sessionStartedAtRef.current
@@ -524,14 +646,43 @@ export function ConceptPractice({
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             {drillItems.map((item, index) => {
-              const result = drillResultsByIndex.get(index);
+              const bulkResult = drillResultsByIndex.get(index);
+              const questionCheck = questionChecks[index];
+              const individualResult =
+                !isGraded && questionCheck?.phase === "graded"
+                  ? questionCheck.result
+                  : undefined;
+              const result = isGraded ? bulkResult : individualResult;
+              const showMcGradedStyles =
+                isGraded || questionCheck?.phase === "graded";
               const questionSeconds = getDisplayedQuestionSeconds(index);
               const isActive = !isGraded && activeQuestionIndex === index;
               const isMc = isMultipleChoiceDrillItem(item);
-              const selectedIndex =
-                isMc && drillResponses[index] !== ""
-                  ? Number(drillResponses[index])
-                  : undefined;
+              const acceptableIndexes = getAcceptableAnswerIndexes(
+                item,
+                acceptableIndexesByQuestion[index],
+              );
+              const isMultiSelect = isMultiSelectMcDrillItem(
+                item,
+                acceptableIndexes,
+              );
+              const selectedIndexes = isMc
+                ? parseMcDrillSelectedIndexes(drillResponses[index] ?? "")
+                : [];
+              const responseComplete = isDrillResponseComplete(
+                item,
+                drillResponses[index],
+                acceptableIndexes,
+              );
+              const isChecking = checkingQuestionIndex === index;
+              const isGradingQuestion = gradingQuestionIndex === index;
+              const showCorrectOnly =
+                !isGraded && questionCheck?.phase === "correct";
+                      const isStreamingHint =
+                !isGraded && questionCheck?.phase === "checking";
+              const showHint =
+                !isGraded &&
+                (questionCheck?.phase === "hint" || isStreamingHint);
 
               return (
                 <div
@@ -541,7 +692,9 @@ export function ConceptPractice({
                       ? result.isCorrect
                         ? "border-green-200 bg-green-50/50"
                         : "border-red-200 bg-red-50/50"
-                      : isActive
+                      : showCorrectOnly
+                        ? "border-green-200 bg-green-50/50"
+                        : isActive
                         ? "border-blue-200 bg-blue-50/30"
                         : "border-gray-200"
                   }`}
@@ -570,63 +723,128 @@ export function ConceptPractice({
                         />
                       )}
                       {result && <DrillResultBadge isCorrect={result.isCorrect} />}
+                      {showCorrectOnly && <DrillResultBadge isCorrect />}
                     </div>
                   </div>
-                  {item.hint && !isGraded && (
-                    <p className="mt-1 text-xs text-gray-500">Hint: {item.hint}</p>
+                  {isMc && isMultiSelect && !isGraded && !acceptabilityResolving && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      More than one answer may work — select all that fit.
+                    </p>
                   )}
-                  {isMc ? (
-                    <div className={getMcOptionsGridClass(item.options)}>
-                      {item.options.map((option, optionIndex) => {
-                        const selected = selectedIndex === optionIndex;
-                        const isCorrectOption =
-                          optionIndex === item.correctAnswerIndex;
-                        const compact = isCompactMcOptions(item.options);
+                  {isMc && acceptabilityResolving && !isGraded ? (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Preparing answer options…
+                    </p>
+                  ) : isMc ? (
+                    <div className="mt-2 flex items-center gap-3">
+                      <div
+                        className={`min-w-0 flex-1 ${getMcOptionsGridClass(item.options).replace(/^mt-2 /, "")}`}
+                      >
+                        {item.options.map((option, optionIndex) => {
+                          const selected = selectedIndexes.includes(optionIndex);
+                          const isCorrectOption = showMcGradedStyles
+                            ? acceptableIndexes.includes(optionIndex)
+                            : optionIndex === item.correctAnswerIndex;
+                          const compact = isCompactMcOptions(item.options);
 
-                        return (
-                          <label
-                            key={`${index}-${optionIndex}`}
-                            className={getOptionClassName({
-                              selected,
-                              isCorrectOption,
-                              isGraded,
-                              compact,
-                            })}
-                          >
-                            <input
-                              type="radio"
-                              name={`concept-drill-${index}`}
-                              checked={selected}
-                              onChange={() =>
-                                onDrillChange(index, String(optionIndex))
-                              }
-                              disabled={isGraded}
-                              className="shrink-0"
-                            />
-                            <span
-                              className={
-                                compact
-                                  ? "min-w-0 truncate"
-                                  : "min-w-0 flex-1 break-words"
-                              }
+                          return (
+                            <label
+                              key={`${index}-${optionIndex}`}
+                              className={getOptionClassName({
+                                selected,
+                                isCorrectOption,
+                                isGraded: showMcGradedStyles,
+                                compact,
+                              })}
                             >
-                              {option}
-                            </span>
-                          </label>
-                        );
-                      })}
+                              <input
+                                type={isMultiSelect ? "checkbox" : "radio"}
+                                name={`concept-drill-${index}`}
+                                checked={selected}
+                                onChange={() =>
+                                  handleDrillChange(
+                                    index,
+                                    toggleMcDrillSelection(
+                                      drillResponses[index] ?? "",
+                                      optionIndex,
+                                      isMultiSelect,
+                                    ),
+                                  )
+                                }
+                                disabled={isGraded}
+                                className="shrink-0"
+                              />
+                              <span
+                                className={
+                                  compact
+                                    ? "min-w-0 truncate"
+                                    : "min-w-0 flex-1 break-words"
+                                }
+                              >
+                                {option}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {supportsIndividualGrading &&
+                        !isGraded &&
+                        questionCheck?.phase !== "graded" &&
+                        (questionCheck?.phase === "hint" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 self-center"
+                            onClick={() => void handleGradeQuestion(index)}
+                            disabled={isGradingQuestion || !responseComplete}
+                          >
+                            {isGradingQuestion ? "Grading..." : "Show answer"}
+                          </Button>
+                        ) : questionCheck?.phase !== "correct" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 self-center"
+                            onClick={() => void handleCheckQuestion(index)}
+                            disabled={
+                              acceptabilityResolving ||
+                              isChecking ||
+                              isGradingQuestion ||
+                              !responseComplete
+                            }
+                          >
+                            {isChecking ? "Checking..." : "Check answer"}
+                          </Button>
+                        ) : null)}
                     </div>
                   ) : (
                     <Input
                       className="mt-2 max-w-xs"
                       value={drillResponses[index] ?? ""}
-                      onChange={(e) => onDrillChange(index, e.target.value)}
+                      onChange={(e) => handleDrillChange(index, e.target.value)}
                       onFocus={() => handleQuestionFocus(index)}
                       onPointerDown={() => handleQuestionFocus(index)}
                       placeholder="Your answer"
                       disabled={isGraded}
                       readOnly={isGraded}
                     />
+                  )}
+                  {showHint && (
+                    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                      <span className="font-medium">Hint: </span>
+                      {questionCheck.hint ||
+                        (isStreamingHint ? (
+                          <span className="text-amber-700/70">…</span>
+                        ) : null)}
+                      {isStreamingHint && questionCheck.hint && (
+                        <span
+                          className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-amber-700 align-middle"
+                          aria-hidden
+                        />
+                      )}
+                    </div>
                   )}
                   {result && (
                     <div className="mt-2 space-y-1 text-sm">
@@ -641,6 +859,37 @@ export function ConceptPractice({
                         </p>
                       )}
                       <p className="text-gray-600">{result.feedback}</p>
+                    </div>
+                  )}
+                  {supportsIndividualGrading && !isGraded && !isMc && (
+                    <div className="mt-3">
+                      {questionCheck?.phase === "hint" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleGradeQuestion(index)}
+                          disabled={isGradingQuestion || !responseComplete}
+                        >
+                          {isGradingQuestion ? "Grading..." : "Show answer"}
+                        </Button>
+                      ) : questionCheck?.phase !== "graded" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleCheckQuestion(index)}
+                          disabled={
+                            acceptabilityResolving ||
+                            isChecking ||
+                            isGradingQuestion ||
+                            !responseComplete ||
+                            questionCheck?.phase === "correct"
+                          }
+                        >
+                          {isChecking ? "Checking..." : "Check answer"}
+                        </Button>
+                      ) : null}
                     </div>
                   )}
                 </div>
