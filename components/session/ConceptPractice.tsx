@@ -56,6 +56,7 @@ interface ConceptPracticeProps {
   onSelectQuestionSet: (setNumber: number) => void;
   onNewQuestionSet: () => void;
   generatingNewSet?: boolean;
+  generationError?: string | null;
   allowNewQuestionSets?: boolean;
   drillItems: ConceptDrillItem[];
   drillResponses: string[];
@@ -188,6 +189,7 @@ export function ConceptPractice({
   onSelectQuestionSet,
   onNewQuestionSet,
   generatingNewSet = false,
+  generationError = null,
   allowNewQuestionSets = true,
   drillItems,
   drillResponses,
@@ -587,6 +589,9 @@ export function ConceptPractice({
                   </Button>
                 )}
               </div>
+              {generationError && (
+                <p className="text-sm text-red-600">{generationError}</p>
+              )}
               {exercisesChat && (
                 <ConceptChatButton
                   onClick={() => exercisesChat.onOpenChange(true)}

@@ -27,6 +27,7 @@ import {
   buildConceptMcQuestionHintPrompt,
   buildConceptQuestionCheckPrompt,
   buildConceptQuestionCheckStreamPrompt,
+  buildConceptQuestionFullGradePrompt,
   buildGradingPrompt,
   buildReadingGradingPrompt,
 } from "@/lib/prompts";
@@ -231,6 +232,41 @@ const conceptQuestionCheckResponseSchema = z.object({
     .max(4)
     .optional(),
 });
+
+const conceptSingleQuestionGradeResponseSchema = z.object({
+  isCorrect: z.boolean(),
+  studentAnswer: z.string().optional(),
+  correctAnswer: z.string(),
+  feedback: z.string(),
+});
+
+function normalizeSingleQuestionGradePayload(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const root = parsed as Record<string, unknown>;
+
+  if (Array.isArray(root.drillResults) && root.drillResults[0]) {
+    const item = root.drillResults[0] as Record<string, unknown>;
+    return {
+      isCorrect: item.isCorrect,
+      studentAnswer: item.studentAnswer,
+      correctAnswer: item.correctAnswer,
+      feedback: item.feedback,
+    };
+  }
+
+  return {
+    isCorrect: root.isCorrect,
+    studentAnswer: root.studentAnswer,
+    correctAnswer: root.correctAnswer,
+    feedback: root.feedback,
+  };
+}
+
+function validateSingleQuestionGradePayload(parsed: unknown) {
+  return conceptSingleQuestionGradeResponseSchema.safeParse(
+    normalizeSingleQuestionGradePayload(parsed),
+  );
+}
 
 const conceptDrillAnnotateResponseSchema = z.object({
   items: z.array(
@@ -561,17 +597,18 @@ async function gradeSingleConceptQuestion(
       input.gradingFeedbackConstraints,
     );
   } else {
-    const submission =
-      typeof input.studentSubmission === "string"
-        ? input.studentSubmission
-        : JSON.stringify(input.studentSubmission);
-    prompt = buildConceptGradingPrompt(
+    prompt = buildConceptQuestionFullGradePrompt(
       input.conceptLabel!,
-      input.drillResponses ?? "",
-      submission,
+      promptText,
+      studentAnswer,
       input.gradingFeedbackConstraints,
     );
   }
+
+  const validateFullGradeParsed = (parsed: unknown) =>
+    isMcQuestion
+      ? validateConceptMcGradingPayload(parsed).success
+      : validateSingleQuestionGradePayload(parsed).success;
 
   const { text, usage } = await callGeminiWithJsonRetry(
     prompt,
@@ -579,35 +616,29 @@ async function gradeSingleConceptQuestion(
     "Return strictly valid JSON matching the schema. No prose, no markdown.",
     "grade-concept-question-full",
     parseJsonResponse,
-    (parsed) =>
-      isMcQuestion
-        ? validateConceptMcGradingPayload(parsed).success
-        : validateGradingPayload(parsed).success,
+    validateFullGradeParsed,
     {
       describeValidationFailure: (parsed) => {
         const result = isMcQuestion
           ? validateConceptMcGradingPayload(parsed)
-          : validateGradingPayload(parsed);
+          : validateSingleQuestionGradePayload(parsed);
         return result.success ? undefined : formatZodIssues(result.error);
       },
     },
   );
 
   const parsedResponse = parseJsonResponse(text);
-  const validated = isMcQuestion
-    ? validateConceptMcGradingPayload(parsedResponse)
-    : validateGradingPayload(parsedResponse);
-
-  if (!validated.success) {
-    return NextResponse.json(
-      { error: "Invalid grading response from AI model" },
-      { status: 502 },
-    );
-  }
 
   let drillResult;
   if (isMcQuestion && mcItem && conceptMcAnswers) {
-    const mcResult = validated.data as z.infer<typeof conceptMcGradingResponseSchema>;
+    const validated = validateConceptMcGradingPayload(parsedResponse);
+    if (!validated.success) {
+      return NextResponse.json(
+        { error: "Invalid grading response from AI model" },
+        { status: 502 },
+      );
+    }
+    const mcResult = validated.data;
     const [built] = buildConceptDrillResults(
       conceptMcAnswers,
       [mcItem],
@@ -615,15 +646,24 @@ async function gradeSingleConceptQuestion(
     );
     drillResult = { ...built, index: questionIndex };
   } else {
-    const result = validated.data as z.infer<typeof responseSchema>;
-    const built = result.drillResults?.[0];
-    if (!built) {
+    const validated = validateSingleQuestionGradePayload(parsedResponse);
+    if (!validated.success) {
+      console.error(
+        "[grade] Invalid single-question grading response:",
+        formatZodIssues(validated.error),
+      );
       return NextResponse.json(
-        { error: "Grading response missing drill result" },
+        { error: "Invalid grading response from AI model" },
         { status: 502 },
       );
     }
-    drillResult = { ...built, index: questionIndex };
+    drillResult = {
+      index: questionIndex,
+      isCorrect: validated.data.isCorrect,
+      studentAnswer: validated.data.studentAnswer?.trim() || studentAnswer,
+      correctAnswer: validated.data.correctAnswer,
+      feedback: validated.data.feedback,
+    };
   }
 
   return NextResponse.json({

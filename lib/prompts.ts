@@ -963,6 +963,37 @@ Do NOT set isCorrect, studentAnswer, or correctAnswer — those are computed sep
 Return ONLY valid JSON, no markdown fences.`;
 }
 
+export function buildConceptQuestionFullGradePrompt(
+  conceptLabel: string,
+  exercisePrompt: string,
+  studentAnswer: string,
+  gradingFeedbackConstraints?: string,
+): string {
+  const feedbackRules =
+    gradingFeedbackConstraints?.trim() || DEFAULT_GRADING_FEEDBACK_CONSTRAINTS;
+
+  return `You are an expert English instructor grading one fill-in-the-blank concept drill exercise.
+
+Concept: ${conceptLabel}
+Exercise: ${exercisePrompt}
+Student answer: ${studentAnswer}
+
+FEEDBACK STYLE (follow strictly):
+${feedbackRules}
+
+Decide if the student's answer is correct. Accept reasonable synonyms and paraphrases.
+
+Return ONLY valid JSON:
+{
+  "isCorrect": true,
+  "studentAnswer": "what the student wrote",
+  "correctAnswer": "the best acceptable answer",
+  "feedback": "one or two short sentences in plain language explaining why correct or incorrect"
+}
+
+Return ONLY valid JSON, no markdown fences.`;
+}
+
 export function buildConceptGradingPrompt(
   conceptLabel: string,
   drillResponses: string,

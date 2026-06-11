@@ -114,6 +114,7 @@ export function ConceptSessionModal({
   const [loading, setLoading] = useState(false);
   const [generatingNewSet, setGeneratingNewSet] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [drillResponses, setDrillResponses] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [checkingQuestionIndex, setCheckingQuestionIndex] = useState<number | null>(
@@ -261,7 +262,7 @@ export function ConceptSessionModal({
       } else {
         setGeneratingNewSet(true);
       }
-      setError(null);
+      setGenerationError(null);
 
       try {
         const res = await fetch("/api/generate", {
@@ -327,11 +328,13 @@ export function ConceptSessionModal({
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
-          setError(
+          setGenerationError(
             "Generation timed out. Try Gemini 2.5 Flash in Settings, or click Retry.",
           );
         } else {
-          setError(err instanceof Error ? err.message : "Generation failed");
+          setGenerationError(
+            err instanceof Error ? err.message : "Generation failed",
+          );
         }
       } finally {
         window.clearTimeout(timeoutId);
@@ -354,6 +357,7 @@ export function ConceptSessionModal({
       setLoading(false);
       setGeneratingNewSet(false);
       setError(null);
+      setGenerationError(null);
       setDrillResponses([]);
       setAcceptableIndexesByQuestion({});
       setAcceptabilityResolving(false);
@@ -379,6 +383,7 @@ export function ConceptSessionModal({
       loadSetState(initialSet, sets);
       setLoading(false);
       setError(null);
+      setGenerationError(null);
       return;
     }
 
@@ -412,7 +417,7 @@ export function ConceptSessionModal({
     if (!conceptId) return;
     const eventId = resolveSetEventId(conceptId, activeSetNumber, conceptSets);
     removeGeneratedForEvent(eventId);
-    setError(null);
+    setGenerationError(null);
     void generateSet(activeSetNumber);
   };
 
@@ -747,9 +752,9 @@ export function ConceptSessionModal({
                 <Skeleton className="h-6 w-3/4" />
                 <Skeleton className="h-32 w-full" />
               </div>
-            ) : error && !content ? (
+            ) : generationError && !content ? (
               <div className="space-y-4 py-4 text-center">
-                <p className="text-red-600">{error}</p>
+                <p className="text-red-600">{generationError}</p>
                 <Button type="button" variant="outline" onClick={handleRetry}>
                   Retry
                 </Button>
@@ -762,6 +767,7 @@ export function ConceptSessionModal({
                 onSelectQuestionSet={handleSelectQuestionSet}
                 onNewQuestionSet={handleNewQuestionSet}
                 generatingNewSet={generatingNewSet}
+                generationError={generationError}
                 drillItems={drillItems}
                 drillResponses={drillResponses}
                 onDrillChange={(index, value) => {
